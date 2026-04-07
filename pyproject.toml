@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ymmsl2svg"
+description = "Visualize yMMSL workflow as Scalable Vector Graphics (SVG)"
+readme = {file = "README.md", content-type = "text/markdown" }
+authors = [
+    {name = "Maarten Sebregts", email = "msebregts@ignitioncomputing.com"},
+    {name = "Iris van der Werf", email = "ivanderwerf@ignitioncomputing.com"},
+]
+classifiers = [
+]
+license = {file = "LICENSE.txt"}
+dependencies = [
+    "svg.py",
+    # "ymmsl >= 0.15",
+    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@feature/timelines",
+]
+dynamic = ["version"]
+requires-python = ">= 3.10"
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "ty",
+    "pytest",
+    "pytest-cov",
+]
+
+[project.urls]
+homepage = "https://github.com/multiscale/ymmsl2svg"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ymmsl2svg*"]
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+
+
+[tool.ruff]
+include = ["pyproject.toml", "sphinx_ymmsl/**/*.py", "tests/**/*.py"]
+exclude = [
+    "docs",
+    ".git",
+]
+# Same as Black
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
