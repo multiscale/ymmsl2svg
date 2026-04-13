@@ -33,7 +33,7 @@ dev = [
 homepage = "https://github.com/multiscale/ymmsl2svg"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["ymmsl2svg*"]
 
 [tool.setuptools_scm]
