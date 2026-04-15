@@ -10,7 +10,7 @@ class TopConduitDuct(SvgBlock):
         self.height = 20
 
 
-class VerticalConduitDuct(SvgBlock):
+class ConduitDuct(SvgBlock):
     """Conduit duct between components in a timeline."""
 
     def __init__(self) -> None:

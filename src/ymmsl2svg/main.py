@@ -11,7 +11,7 @@ def ymmsl2svg(ymmsl_source: str | Path) -> svg.SVG:
     """Visualize a yMMSL graph as an SVG image.
 
     Args:
-        ymmsl_source: A string containing the yMMSL configuration of your simulation, or
+        ymmsl_source: A string containing the yMMSL data of your simulation, or
             a Path to a file containing yMMSL data.
 
     Returns:

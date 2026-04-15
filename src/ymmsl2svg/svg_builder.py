@@ -21,6 +21,9 @@ class SVGBuilder:
             .TopConduitDuct {
                 fill: #ccc;
             }
+            .ConduitDuct {
+                fill: #aaa;
+            }
             .ComponentBlock {
                 fill: rgb(134, 146, 255);
             }
