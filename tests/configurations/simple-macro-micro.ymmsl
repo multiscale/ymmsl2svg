@@ -1,0 +1,18 @@
+ymmsl_version: v0.2
+
+models:
+  macro_micro:
+    components:
+      macro:
+        description: Macro model
+        ports:
+          o_i: output
+          s: input
+      micro:
+        description: Micro model
+        ports:
+          f_init: input
+          o_f: output
+    conduits:
+      macro.output: micro.input
+      micro.output: macro.input

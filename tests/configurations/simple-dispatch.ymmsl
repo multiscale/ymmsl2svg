@@ -1,0 +1,15 @@
+ymmsl_version: v0.2
+
+models:
+  dispatch:
+    components:
+      first:
+        description: First component
+        ports:
+          o_f: output
+      second:
+        description: Second component
+        ports:
+          f_init: input 
+    conduits:
+      first.output: second.input
