@@ -1,9 +1,23 @@
 import re
+from dataclasses import asdict
+from importlib.resources import files
+from string import Template
 
 import svg
 from ymmsl.v0_2 import Model, TimelineTree
 
+from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
+
+
+def _get_style() -> str:
+    template = (files("ymmsl2svg") / "style.template.css").read_text()
+    style = Template(template).substitute(asdict(settings))
+    # Remove comments and whitespace to reduce SVG file size
+    style = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
+    style = re.sub(r"\s+", " ", style)
+    style = re.sub(r"\s*([{{}}:;,>+~\(\)\[\]=])\s*", r"\1", style)
+    return style
 
 
 class SVGBuilder:
@@ -14,23 +28,7 @@ class SVGBuilder:
 
     def _style(self) -> svg.Style:
         """Build CSS style sheet for the SVG image."""
-        style = """
-            .TimelineBlock {
-                fill: rgb(195, 130, 255);
-            }
-            .TopConduitDuct {
-                fill: #ccc;
-            }
-            .ConduitDuct {
-                fill: #aaa;
-            }
-            .ComponentBlock {
-                fill: rgb(134, 146, 255);
-            }
-        """
-        # Remove whitespace to reduce file size
-        style = re.sub(r"\s+", "", style)
-        return svg.Style(text=style)
+        return svg.Style(text=_get_style())
 
     def _defs(self) -> svg.Defs:
         """Reusable graphic components (e.g. port visualizations)."""

@@ -12,7 +12,7 @@ authors = [
 ]
 classifiers = [
 ]
-license = {file = "LICENSE.txt"}
+license = "Apache-2.0"
 dependencies = [
     "svg.py",
     # "ymmsl >= 0.15",
