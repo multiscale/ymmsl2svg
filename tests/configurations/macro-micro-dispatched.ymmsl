@@ -1,0 +1,27 @@
+ymmsl_version: v0.2
+
+description: Test call/release coupling with a dispatch coupling in the subtimeline
+models:
+  macro_micro:
+    components:
+      macro:
+        description: Macro description
+        ports:
+          o_i: output output3 output2
+          s: input1 input2
+      micro1:
+        description: Micro1 description
+        ports:
+          f_init: input input2
+          o_f: output
+      micro2:
+        description: Micro2 description
+        ports:
+          f_init: input1 input2 input3
+          o_f: output
+    conduits:
+      macro.output: [micro1.input, micro2.input2]
+      macro.output2: micro2.input3
+      macro.output3: micro1.input2
+      micro1.output: [micro2.input1, macro.input1]
+      micro2.output: macro.input2
