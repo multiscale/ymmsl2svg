@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 
 import svg
-from ymmsl.v0_2 import TimelineNode, TimelineTree
+from ymmsl.v0_2 import Reference, TimelineNode, TimelineTree
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
@@ -19,18 +19,34 @@ class TimelineBlock(SvgBlock):
         super().__init__()
         self.tree = tree
         self.node = node
+        if len(node.parent_components) > 1:
+            raise NotImplementedError(
+                "Visualization for interact coupling is not yet implemented."
+            )
+
+        self.transform: svg.Transform = svg.Translate(0, 0)
 
         self.top_conduit_duct = TopConduitDuct()
         self.conduit_ducts: list[ConduitDuct] = [ConduitDuct()]
         self.components: list[ComponentBlock] = []
+
+        # Subtimelines
+        self.subtimelines: list[TimelineBlock] = []
+        subtl_per_component: dict[Reference, list[TimelineBlock]] = {}
+        for subnode in node.children:
+            subtimeline = TimelineBlock(tree, subnode)
+            self.subtimelines.append(subtimeline)
+            for component in subnode.parent_components:
+                subtl_per_component.setdefault(component.name, []).append(subtimeline)
 
         # For now we take the order of components from the timeline, but we should
         # revisit this:
         # - Support interact coupling (components with shared timelines must be next to
         #   each other)
         # - Minimize conduit crossings
-        for component in node._components:
-            self.components.append(ComponentBlock(component))
+        for component in node.components:
+            subtimelines = subtl_per_component.get(component.name, [])
+            self.components.append(ComponentBlock(component, subtimelines))
             self.conduit_ducts.append(ConduitDuct())
 
         self.calc_layout()
@@ -59,13 +75,21 @@ class TimelineBlock(SvgBlock):
         self.top_conduit_duct.width = self.width
         self.height = (
             max(c.height for c in self.components) + self.top_conduit_duct.height
-        )
+        ) + max((tl.height for tl in self.subtimelines), default=0)
 
-    def to_svg(self) -> svg.Element:
+    def moveto(self, x: float, y: float) -> None:
+        """Move the complete subtimeline by setting a translation filter on the
+        containing SVG group."""
+        self.transform = svg.Translate(x, y)
+
+    def to_svg(self) -> svg.G:
         """Build the SVG representing this timeline."""
         group = super().to_svg()
         assert group.elements is not None
         # Add sub-elements
         group.elements.append(self.top_conduit_duct.to_svg())
         group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
+        group.elements.extend(tl.to_svg() for tl in self.subtimelines)
+        # Set translation
+        group.transform = [self.transform]
         return group

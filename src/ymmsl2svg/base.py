@@ -19,7 +19,7 @@ class SvgBlock:
     width: float = 0
     height: float = 0
 
-    def to_svg(self) -> svg.Element:
+    def to_svg(self) -> svg.G:
         """Create and return the SVG element to represent this object."""
         group = svg.G(class_=[type(self).__name__ + "_group"], elements=[])
         if settings.debug:

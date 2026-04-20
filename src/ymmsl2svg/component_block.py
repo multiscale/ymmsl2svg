@@ -1,8 +1,13 @@
+from typing import TYPE_CHECKING
+
 import svg
 from ymmsl.v0_2 import Component, Identifier, Operator, Port
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
+
+if TYPE_CHECKING:
+    from ymmsl2svg.timeline_block import TimelineBlock
 
 
 def ports_for_operator(component: Component, operator: Operator) -> list[Port]:
@@ -20,9 +25,17 @@ class ComponentBlock(SvgBlock):
     component_height: float = 0
     """Height of the component rectangle"""
 
-    def __init__(self, component: Component) -> None:
+    def __init__(
+        self, component: Component, subtimelines: list["TimelineBlock"]
+    ) -> None:
         super().__init__()
         self.component = component
+        self.subtimelines = subtimelines
+        if len(subtimelines) > 1:
+            raise NotImplementedError(
+                "Visualization of components with multiple subtimelines "
+                "is not yet implemented."
+            )
 
         # TODO: sequence ports to minimize conduit crossings
         self.f_init_ports = ports_for_operator(component, Operator.F_INIT)
@@ -33,7 +46,9 @@ class ComponentBlock(SvgBlock):
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
-        self.width = self.component_width = settings.component_width
+        subtimeline_width = sum(subtl.width for subtl in self.subtimelines)
+        self.component_width = max(settings.component_width, subtimeline_width)
+        self.width = self.component_width
 
         # Make space for f_init and o_f ports
         f_init_width = settings.port_size if self.f_init_ports else 0
@@ -67,7 +82,11 @@ class ComponentBlock(SvgBlock):
             x = x0 + (i) * settings.port_margin
             self.port_positions[port.name] = (x, self.y + self.height)
 
-    def to_svg(self) -> svg.Element:
+        # Move subtimelines
+        for timeline in self.subtimelines:
+            timeline.moveto(self.component_x, self.y + self.height)
+
+    def to_svg(self) -> svg.G:
         """Create and return the SVG element to represent this object."""
         group = super().to_svg()
         assert group.elements is not None
