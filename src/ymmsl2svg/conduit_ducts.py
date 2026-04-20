@@ -18,3 +18,5 @@ class ConduitDuct(SvgBlock):
         # Temporary values to test layout
         self.width = 20
         self.height = 50
+
+    def calc_layout(self) -> None: ...

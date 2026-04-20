@@ -51,6 +51,7 @@ class TimelineBlock(SvgBlock):
         for item in self._iter_cd_and_components():
             item.x = width
             item.y = self.top_conduit_duct.height
+            item.calc_layout()
             width += item.width
             height = max(height, item.height)
 
@@ -62,9 +63,9 @@ class TimelineBlock(SvgBlock):
 
     def to_svg(self) -> svg.Element:
         """Build the SVG representing this timeline."""
-        svg = super().to_svg()
-        assert svg.elements is not None
+        group = super().to_svg()
+        assert group.elements is not None
         # Add sub-elements
-        svg.elements.append(self.top_conduit_duct.to_svg())
-        svg.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
-        return svg
+        group.elements.append(self.top_conduit_duct.to_svg())
+        group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
+        return group
