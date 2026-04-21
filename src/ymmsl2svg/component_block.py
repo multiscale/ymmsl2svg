@@ -15,9 +15,9 @@ class ComponentBlock(SvgBlock):
 
     component_x: float = 0
     """x-position of the component rectangle"""
-    component_width: float = 100
+    component_width: float = 0
     """Width of the component rectangle"""
-    component_height: float = 50
+    component_height: float = 0
     """Height of the component rectangle"""
 
     def __init__(self, component: Component) -> None:
@@ -33,7 +33,7 @@ class ComponentBlock(SvgBlock):
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
-        self.width = self.component_width
+        self.width = self.component_width = settings.component_width
 
         # Make space for f_init and o_f ports
         f_init_width = settings.port_size if self.f_init_ports else 0
@@ -43,7 +43,8 @@ class ComponentBlock(SvgBlock):
 
         max_num_ports = max(len(self.f_init_ports), len(self.o_f_ports))
         port_height = max_num_ports * settings.port_margin
-        self.height = self.component_height = max(self.component_height, port_height)
+        self.component_height = max(settings.component_height, port_height)
+        self.height = self.component_height
 
         # Make space for o_i and s ports
         if self.o_i_ports or self.s_ports:
@@ -70,7 +71,6 @@ class ComponentBlock(SvgBlock):
         """Create and return the SVG element to represent this object."""
         group = super().to_svg()
         assert group.elements is not None
-        # Component rectangle and text
         component = svg.Rect(
             x=self.component_x + settings.component_border / 2,
             y=self.y + settings.component_border / 2,
