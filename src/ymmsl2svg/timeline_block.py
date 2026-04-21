@@ -74,8 +74,10 @@ class TimelineBlock(SvgBlock):
         self.width = width
         self.top_conduit_duct.width = self.width
         self.height = (
-            max(c.height for c in self.components) + self.top_conduit_duct.height
-        ) + max((tl.height for tl in self.subtimelines), default=0)
+            self.top_conduit_duct.height
+            + max((c.height for c in self.components), default=0)
+            + max((tl.height for tl in self.subtimelines), default=0)
+        )
 
     def moveto(self, x: float, y: float) -> None:
         """Move the complete subtimeline by setting a translation filter on the

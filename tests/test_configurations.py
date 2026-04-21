@@ -22,14 +22,33 @@ def clear_output_folder():
 
 def gen_index() -> str:
     html = [
-        "<html><body style='background-color: #eee'><h1>Generated SVG for tests</h1>"
+        "<html><head><style>"
+        ".flex-grid{"
+        "  display:flex;"
+        "  flex-wrap:wrap;"
+        "  gap:12px;"
+        "}"
+        ".flex-grid div{"
+        "  border:1px solid black;"
+        "  padding:5px;"
+        "  justify-items: center;"
+        "}"
+        "#debug:not(:checked) ~ div .debug {display:none;}"
+        "#debug:checked ~ div .nodebug {display:none;}"
+        "</style></head>"
+        "<body style='background-color: #eee'>"
+        "<input type='checkbox' id='debug'/><label for='debug'>Show debug</label>"
+        "<h1>Generated SVG for tests</h1>"
+        "<div class='flex-grid'>"
     ]
     for srcpath in configuration_files:
-        for debug in [False, True]:
-            output = outfile(srcpath, debug).name
-            html.append(f"<h2>{output}</h2>")
-            html.append(f"<a href='{output}'><image src='{output}' /></a>")
-    html.append("</body></html>")
+        output = outfile(srcpath, False).name
+        html.append(f"<div><h2>{output}</h2>")
+        html.append(f"<a class='nodebug' href='{output}'><image src='{output}'/></a>")
+        output = outfile(srcpath, True).name
+        html.append(f"<a class='debug' href='{output}'><image src='{output}'/></a>")
+        html.append("</div>")
+    html.append("</div></body></html>")
     return "".join(html)
 
 
