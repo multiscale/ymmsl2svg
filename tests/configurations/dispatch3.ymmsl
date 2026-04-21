@@ -1,0 +1,23 @@
+ymmsl_version: v0.2
+
+description: Test dispatch model with three components
+models:
+  dispatch:
+    components:
+      first:
+        description: First
+        ports:
+          o_f: output1 output2 disconnected
+      second:
+        description: Second
+        ports:
+          f_init: input1 input2
+          o_f: output
+      third:
+        description: Third
+        ports:
+          f_init: input1 input2 input3
+    conduits:
+      first.output1: [second.input1, third.input1]
+      first.output2: [second.input2, third.input2]
+      second.output: third.input3

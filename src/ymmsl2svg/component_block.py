@@ -1,5 +1,5 @@
 import svg
-from ymmsl.v0_2 import Component, Operator, Port
+from ymmsl.v0_2 import Component, Identifier, Operator, Port
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
@@ -13,6 +13,13 @@ def ports_for_operator(component: Component, operator: Operator) -> list[Port]:
 class ComponentBlock(SvgBlock):
     """SVG Block that represents a single component in a model, including its ports."""
 
+    component_x: float = 0
+    """x-position of the component rectangle"""
+    component_width: float = 0
+    """Width of the component rectangle"""
+    component_height: float = 0
+    """Height of the component rectangle"""
+
     def __init__(self, component: Component) -> None:
         super().__init__()
         self.component = component
@@ -20,29 +27,76 @@ class ComponentBlock(SvgBlock):
         # TODO: sequence ports to minimize conduit crossings
         self.f_init_ports = ports_for_operator(component, Operator.F_INIT)
         self.o_f_ports = ports_for_operator(component, Operator.O_F)
+        self.o_i_ports = ports_for_operator(component, Operator.O_I)
+        self.s_ports = ports_for_operator(component, Operator.S)
+        self.port_positions: dict[Identifier, tuple[float, float]] = {}
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
-        # Temporary values to test layout
-        self.width = 100
-        self.height = 50
+        self.width = self.component_width = settings.component_width
+
+        # Make space for f_init and o_f ports
+        f_init_width = settings.port_size if self.f_init_ports else 0
+        o_f_width = settings.port_size if self.o_f_ports else 0
+        self.width += f_init_width + o_f_width
+        self.component_x = self.x + f_init_width
+
+        max_num_ports = max(len(self.f_init_ports), len(self.o_f_ports))
+        port_height = max_num_ports * settings.port_margin
+        self.component_height = max(settings.component_height, port_height)
+        self.height = self.component_height
+
+        # Make space for o_i and s ports
+        if self.o_i_ports or self.s_ports:
+            self.height += settings.port_size
+
+        # Calculate (x, y) positions for each port
+        for ports, x in [(self.f_init_ports, 0), (self.o_f_ports, self.width)]:
+            y = self.component_height / 2 - (len(ports) - 1) * settings.port_margin / 2
+            for port in ports:
+                self.port_positions[port.name] = (self.x + x, self.y + y)
+                y += settings.port_margin
+
+        # TODO: position o_i/s ports correctly for multiple sub-timelines
+        x0 = self.component_x
+        for i, port in enumerate(self.o_i_ports):
+            x = x0 + (i + 1) * settings.port_margin
+            self.port_positions[port.name] = (x, self.y + self.height)
+        x0 += self.component_width - len(self.s_ports) * settings.port_margin
+        for i, port in enumerate(self.s_ports):
+            x = x0 + (i) * settings.port_margin
+            self.port_positions[port.name] = (x, self.y + self.height)
 
     def to_svg(self) -> svg.Element:
         """Create and return the SVG element to represent this object."""
         group = super().to_svg()
         assert group.elements is not None
         component = svg.Rect(
-            x=self.x + settings.component_border / 2,
+            x=self.component_x + settings.component_border / 2,
             y=self.y + settings.component_border / 2,
-            width=self.width - settings.component_border,
-            height=self.height - settings.component_border,
+            width=self.component_width - settings.component_border,
+            height=self.component_height - settings.component_border,
             class_=["component"],
-            id=f"component.{self.component.name}",
+            id=f"component-{self.component.name}",
         )
         text = svg.Text(
             text=str(self.component.name),
-            x=self.x + self.width / 2,
-            y=self.y + self.height / 2,
+            x=self.component_x + self.component_width / 2,
+            y=self.y + self.component_height / 2,
         )
         group.elements.extend([component, text])
+
+        # Draw ports
+        for ports, use_id in [
+            (self.f_init_ports, "#port-f_init"),
+            (self.o_f_ports, "#port-o_f"),
+            (self.o_i_ports, "#port-o_i"),
+            (self.s_ports, "#port-s"),
+        ]:
+            for port in ports:
+                x, y = self.port_positions[port.name]
+                title = svg.Title(text=str(port.name))
+                use = svg.Use(href=use_id, x=x, y=y, elements=[title])
+                group.elements.append(use)
+
         return group

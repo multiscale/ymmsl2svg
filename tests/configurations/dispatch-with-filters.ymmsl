@@ -1,0 +1,35 @@
+ymmsl_version: v0.2
+
+models:
+  macro_micro:
+    components:
+      macro:
+        description: Macro model
+        ports:
+          o_i: output
+          s: input
+          o_f: final
+      micro:
+        description: Micro model
+        ports:
+          f_init: input
+          o_f: output output2
+      dispatch:
+        description: Model that runs after macro and micro
+        ports:
+          f_init: from_macro from_micro
+          o_i: output
+          s: input
+      dispatch_micro:
+        description: Micro model for dispatch
+        ports:
+          f_init: input1 input2
+          o_f: output
+    conduits:
+      macro.output: micro.input
+      micro.output: macro.input
+      macro.final: [dispatch.from_macro, repeat dispatch_micro.input1]
+      micro.output2: last dispatch.from_micro
+      dispatch.output: dispatch_micro.input2
+      dispatch_micro.output: dispatch.input
+
