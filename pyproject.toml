@@ -14,6 +14,7 @@ classifiers = [
 ]
 license = "Apache-2.0"
 dependencies = [
+    "click",
     "svg.py",
     # "ymmsl >= 0.15",
     "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@feature/timelines",
@@ -31,6 +32,9 @@ dev = [
 
 [project.urls]
 homepage = "https://github.com/multiscale/ymmsl2svg"
+
+[project.scripts]
+ymmsl2svg = "ymmsl2svg.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
