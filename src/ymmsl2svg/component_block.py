@@ -87,7 +87,7 @@ class ComponentBlock(SvgBlock):
             timeline.moveto(self.component_x, self.y + self.height)
 
     def to_svg(self) -> svg.G:
-        """Create and return the SVG element to represent this object."""
+        """Build the SVG representing this component and its ports."""
         group = super().to_svg()
         assert group.elements is not None
         component = svg.Rect(
