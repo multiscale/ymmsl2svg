@@ -1,7 +1,7 @@
 ymmsl_version: v0.2
 
 models:
-  macro_micro:
+  dispatch_with_filters:
     components:
       macro:
         description: Macro model
@@ -20,7 +20,7 @@ models:
           f_init: from_macro from_micro
           o_i: output
           s: input
-      dispatch_micro:
+      micro2:
         description: Micro model for dispatch
         ports:
           f_init: input1 input2
@@ -28,8 +28,8 @@ models:
     conduits:
       macro.output: micro.input
       micro.output: macro.input
-      macro.final: [dispatch.from_macro, repeat dispatch_micro.input1]
+      macro.final: [dispatch.from_macro, repeat micro2.input1]
       micro.output2: last dispatch.from_micro
-      dispatch.output: dispatch_micro.input2
-      dispatch_micro.output: dispatch.input
+      dispatch.output: micro2.input2
+      micro2.output: dispatch.input
 
