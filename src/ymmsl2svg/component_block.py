@@ -7,6 +7,7 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
+    from ymmsl2svg.conduit_ducts import ConduitDuct
     from ymmsl2svg.timeline_block import TimelineBlock
 
 
@@ -19,7 +20,11 @@ class ComponentBlock(SvgBlock):
     """SVG Block that represents a single component in a model, including its ports."""
 
     def __init__(
-        self, component: Component, subtimelines: list["TimelineBlock"]
+        self,
+        component: Component,
+        subtimelines: list["TimelineBlock"],
+        left_conduit_duct: "ConduitDuct",
+        right_conduit_duct: "ConduitDuct",
     ) -> None:
         super().__init__()
         # Geometry
@@ -38,6 +43,18 @@ class ComponentBlock(SvgBlock):
                 "Visualization of components with multiple subtimelines "
                 "is not yet implemented."
             )
+
+        # Conduit connections to the left/right of this component
+        self.left_conduit_duct = left_conduit_duct
+        self.right_conduit_duct = right_conduit_duct
+        left_conduit_duct.add_right_connector(self)
+        right_conduit_duct.add_left_connector(self)
+        if subtimelines:  # TODO: support multiple subtimelines
+            left_conduit_duct.add_right_connector(subtimelines[0].top_conduit_duct)
+            right_conduit_duct.add_left_connector(subtimelines[0].top_conduit_duct)
+        # Conduit connections to subtimelines
+        for subtl in subtimelines:
+            subtl.top_conduit_duct.add_top_connector(self)
 
         # TODO: sequence ports to minimize conduit crossings
         self.f_init_ports = ports_for_operator(component, Operator.F_INIT)

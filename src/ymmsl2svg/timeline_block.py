@@ -27,8 +27,11 @@ class TimelineBlock(SvgBlock):
 
         self.transform: svg.Transform = svg.Translate(0, 0)
 
-        self.top_conduit_duct = TopConduitDuct()
-        self.conduit_ducts: list[ConduitDuct] = [ConduitDuct()]
+        self.top_conduit_duct = TopConduitDuct(node.name)
+        self.conduit_ducts: list[ConduitDuct] = [
+            ConduitDuct(node.name, self.top_conduit_duct)
+            for _ in range(len(node.components) + 1)
+        ]
         self.components: list[ComponentBlock] = []
 
         # Subtimelines
@@ -45,10 +48,15 @@ class TimelineBlock(SvgBlock):
         # - Support interact coupling (components with shared timelines must be next to
         #   each other)
         # - Minimize conduit crossings
-        for component in node.components:
+        for i, component in enumerate(node.components):
             subtimelines = subtl_per_component.get(component.name, [])
-            self.components.append(ComponentBlock(component, subtimelines))
-            self.conduit_ducts.append(ConduitDuct())
+            cblock = ComponentBlock(
+                component,
+                subtimelines,
+                self.conduit_ducts[i],
+                self.conduit_ducts[i + 1],
+            )
+            self.components.append(cblock)
 
     def _iter_cd_and_components(
         self,
@@ -63,6 +71,7 @@ class TimelineBlock(SvgBlock):
         """Calculate the size and layout of the timeline block and its contents."""
         for subtl in self.subtimelines:
             subtl.calc_layout()
+        self.top_conduit_duct.calc_layout()
 
         width = 0
         height = 0
