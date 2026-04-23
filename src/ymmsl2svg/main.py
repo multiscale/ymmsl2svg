@@ -32,16 +32,9 @@ def configuration2svg(configuration: Configuration) -> svg.SVG:
     """
     # Ensure we have a valid configuration
     resolve(Reference([]), configuration)
-    configuration.check_consistent()
+    configuration.check_consistent(check_runnable=False)
 
-    # Assume a single model for now:
-    if len(configuration.models) == 0:
-        raise RuntimeError("The provided configuration doesn't contain any models.")
-    elif len(configuration.models) > 1:
-        raise NotImplementedError(
-            "ymmsl2svg doesn't support multiple models in one configuration yet."
-        )
-
+    # Assume a single root model for now:
     model = configuration.root_model()
     builder = SVGBuilder(model)
     return builder.build_svg()
