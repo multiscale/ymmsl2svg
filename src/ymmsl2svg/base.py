@@ -1,11 +1,8 @@
-from dataclasses import dataclass
-
 import svg
 
 from ymmsl2svg.settings import settings
 
 
-@dataclass
 class SvgBlock:
     """Base class for block visualizations.
 
@@ -14,10 +11,15 @@ class SvgBlock:
     classes are responsible for creating sub-components and adding those to the group.
     """
 
-    x: float = 0
-    y: float = 0
-    width: float = 0
-    height: float = 0
+    def __init__(self):
+        self.x: float = 0
+        """X-position (top-left) of this block"""
+        self.y: float = 0
+        """Y-position (top-left) of this block"""
+        self.width: float = 0
+        """Width of this block"""
+        self.height: float = 0
+        """Height of this block"""
 
     def to_svg(self) -> svg.G:
         """Create and return the SVG group to represent this object."""

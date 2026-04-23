@@ -18,17 +18,19 @@ def ports_for_operator(component: Component, operator: Operator) -> list[Port]:
 class ComponentBlock(SvgBlock):
     """SVG Block that represents a single component in a model, including its ports."""
 
-    component_x: float = 0
-    """x-position of the component rectangle"""
-    component_width: float = 0
-    """Width of the component rectangle"""
-    component_height: float = 0
-    """Height of the component rectangle"""
-
     def __init__(
         self, component: Component, subtimelines: list["TimelineBlock"]
     ) -> None:
         super().__init__()
+        # Geometry
+        self.component_x: float = 0
+        """x-position of the component rectangle"""
+        self.component_width: float = 0
+        """Width of the component rectangle"""
+        self.component_height: float = 0
+        """Height of the component rectangle"""
+
+        # Data
         self.component = component
         self.subtimelines = subtimelines
         if len(subtimelines) > 1:
