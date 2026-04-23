@@ -27,6 +27,9 @@ text {
     stroke: #000;
     stroke-width: ${component_border};
 }
+.ComponentBlock_group:hover .component {
+    fill: #adf;
+}
 .ComponentBlock_group text {
     text-anchor: middle;
     dominant-baseline: middle;
@@ -38,7 +41,7 @@ text {
     stroke-width: 2;
 }
 #port-f_init, #port-s {
-    fill: none;
+    fill: white;
 }
 #port-o_f, #port-o_i {
     fill: black;

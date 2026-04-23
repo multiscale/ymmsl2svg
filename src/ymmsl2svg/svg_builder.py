@@ -50,6 +50,20 @@ class SVGBuilder:
         timeline_tree = TimelineTree(self.model)
         timeline_tree.check_consistent()
         timeline_block = TimelineBlock(timeline_tree, timeline_tree.root)
+
+        # Map all components
+        components = timeline_block.map_components()
+        # Route conduits
+        for conduit in self.model.conduits:
+            destination_timeline = timeline_tree.timeline_for_port(conduit.receiver)
+            sending_component = conduit.sending_component()
+            if len(sending_component) == 0:  # Conduit sender is a model port
+                tcd = timeline_block.top_conduit_duct
+                tcd.route_from_left(conduit, destination_timeline.name)
+            else:
+                sender = components[sending_component]
+                sender.route_conduit(conduit, destination_timeline.name)
+
         timeline_block.calc_layout()
 
         return svg.SVG(

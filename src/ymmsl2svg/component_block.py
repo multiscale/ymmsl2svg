@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import svg
-from ymmsl.v0_2 import Component, Identifier, Operator, Port
+from ymmsl.v0_2 import Component, Conduit, Identifier, Operator, Port, Timeline
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
@@ -62,6 +62,19 @@ class ComponentBlock(SvgBlock):
         self.o_i_ports = ports_for_operator(component, Operator.O_I)
         self.s_ports = ports_for_operator(component, Operator.S)
         self.port_positions: dict[Identifier, tuple[float, float]] = {}
+
+    def route_conduit(self, conduit: Conduit, destination_timeline: Timeline) -> None:
+        assert conduit.sending_component() == self.component.name
+        port = self.component.ports[conduit.sending_port()]
+        if port.operator is Operator.O_F:
+            self.right_conduit_duct.route_from_left(conduit, destination_timeline, self)
+        elif port.operator is Operator.O_I:
+            # TODO: support multiple subtimelines
+            self.subtimelines[0].top_conduit_duct.route_from_top(
+                conduit, destination_timeline, self
+            )
+        else:
+            raise RuntimeError("Unreachable")
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""

@@ -6,6 +6,7 @@ from ymmsl.v0_2 import Reference, TimelineNode, TimelineTree
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
+from ymmsl2svg.settings import settings
 
 
 class TimelineBlock(SvgBlock):
@@ -67,6 +68,13 @@ class TimelineBlock(SvgBlock):
             yield component
         yield self.conduit_ducts[-1]
 
+    def map_components(self) -> dict[Reference, ComponentBlock]:
+        """Recursively map all ComponentBlocks by their component name"""
+        result = {c.component.name: c for c in self.components}
+        for subtl in self.subtimelines:
+            result.update(subtl.map_components())
+        return result
+
     def calc_layout(self):
         """Calculate the size and layout of the timeline block and its contents."""
         for subtl in self.subtimelines:
@@ -74,6 +82,8 @@ class TimelineBlock(SvgBlock):
         self.top_conduit_duct.calc_layout()
 
         width = 0
+        if self.node.parent_components:
+            width = settings.port_margin / 2
         height = 0
         for item in self._iter_cd_and_components():
             item.x = width
@@ -82,6 +92,8 @@ class TimelineBlock(SvgBlock):
             width += item.width
             height = max(height, item.height)
 
+        if self.node.parent_components:
+            width += settings.port_margin / 2
         self.width = width
         self.top_conduit_duct.width = self.width
         self.height = (
