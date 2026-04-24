@@ -19,6 +19,9 @@ class Settings:
     port_margin: float = 10
     """Size between the centers of two ports."""
 
+    conduit_margin: float = 4  # Must be <= port_margin!
+    conduit_width: float = 2
+
 
 # Singleton object for global settings
 settings = Settings()

@@ -1,7 +1,16 @@
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, cast
 
 import svg
-from ymmsl.v0_2 import Component, Identifier, Operator, Port
+from ymmsl.v0_2 import (
+    Component,
+    Conduit,
+    Identifier,
+    Operator,
+    Port,
+    Reference,
+    Timeline,
+)
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
@@ -54,7 +63,7 @@ class ComponentBlock(SvgBlock):
             right_conduit_duct.add_left_connector(subtimelines[0].top_conduit_duct)
         # Conduit connections to subtimelines
         for subtl in subtimelines:
-            subtl.top_conduit_duct.add_top_connector(self)
+            subtl.top_conduit_duct.add_top_component(self)
 
         # TODO: sequence ports to minimize conduit crossings
         self.f_init_ports = ports_for_operator(component, Operator.F_INIT)
@@ -62,6 +71,30 @@ class ComponentBlock(SvgBlock):
         self.o_i_ports = ports_for_operator(component, Operator.O_I)
         self.s_ports = ports_for_operator(component, Operator.S)
         self.port_positions: dict[Identifier, tuple[float, float]] = {}
+        self.conduits_per_port: dict[Identifier, list[Conduit]] = {}
+
+    def add_conduit(self, conduit: Conduit):
+        self.conduits_per_port.setdefault(conduit.sending_port(), []).append(conduit)
+
+    def conduits_per_oi_port(
+        self, timeline: Timeline
+    ) -> Iterator[tuple[Reference, list[Conduit]]]:
+        # TODO: filter timeline
+        for port in self.o_i_ports:
+            yield (
+                self.component.name + port.name,
+                self.conduits_per_port.get(port.name, []),
+            )
+
+    def conduits_per_of_port(self) -> Iterator[tuple[Reference, list[Conduit]]]:
+        for port in self.o_f_ports:
+            yield (
+                self.component.name + port.name,
+                self.conduits_per_port.get(port.name, []),
+            )
+
+    def get_port_position(self, port: Reference):
+        return self.port_positions[cast(Identifier, port[-1])]
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
@@ -94,11 +127,11 @@ class ComponentBlock(SvgBlock):
         # TODO: position o_i/s ports correctly for multiple sub-timelines
         x0 = self.component_x
         for i, port in enumerate(self.o_i_ports):
-            x = x0 + (i + 1) * settings.port_margin
+            x = x0 + (i + 0.5) * settings.port_margin
             self.port_positions[port.name] = (x, self.y + self.height)
         x0 += self.component_width - len(self.s_ports) * settings.port_margin
         for i, port in enumerate(self.s_ports):
-            x = x0 + (i) * settings.port_margin
+            x = x0 + (i + 0.5) * settings.port_margin
             self.port_positions[port.name] = (x, self.y + self.height)
 
         # Move subtimelines
