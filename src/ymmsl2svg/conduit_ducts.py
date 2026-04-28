@@ -11,58 +11,38 @@ from ymmsl2svg.settings import settings
 
 
 @dataclass
-class HLane:
-    """Horizontal lane for conduits"""
+class Lane:
+    """Horizontal or vertical lane for conduits."""
 
-    y: float | None = None
-    """y-coordinate of the lane"""
-
-
-@dataclass
-class VLane:
-    """Vertical lane for conduits"""
-
-    x: float | None = None
-    """x-coordinate of the lane"""
+    horizontal: bool
+    """True if this is a horizontal lane, False if this is a vertical lane."""
+    pos: float | None = None
+    """x or y coordinate of the lane."""
 
 
-class HLanes:
-    """Bundle of horizontal lanes, indexed by Conduit.sender."""
+class Lanes:
+    """Bundle of horizontal/vertical lanes, indexed by Conduit.sender."""
 
-    def __init__(self) -> None:
-        self._lanes: dict[Reference, HLane] = {}
+    def __init__(self, horizontal: bool, reversed: bool = False) -> None:
+        self._horizontal = horizontal
+        self._reversed = reversed
+        self._lanes: dict[Reference, Lane] = {}
 
-    def set_y(self, y_offset: float, spacing: float) -> float:
-        """Set the y coordinates for all lanes in this bundle."""
-        for i, lane in enumerate(self._lanes.values()):
-            lane.y = y_offset + i * spacing
+    def set_pos(self, offset: float, spacing: float) -> float:
+        """Set the x/y coordinates for all lanes in this bundle."""
+        for i, lane in enumerate(self):
+            lane.pos = offset + i * spacing
         return len(self) * spacing
 
-    def __getitem__(self, sender: Reference) -> HLane:
-        """Get (and create if required) the HLane for this sender."""
-        return self._lanes.setdefault(sender, HLane())
+    def __iter__(self) -> Iterator[Lane]:
+        """Get an iterator over the Lanes in this bundle."""
+        if self._reversed:
+            return reversed(self._lanes.values())
+        return iter(self._lanes.values())
 
-    def __len__(self) -> int:
-        """Get number of lanes in this bundle."""
-        return len(self._lanes)
-
-
-class VLanes:
-    """Bundle of vertical lanes, indexed by Conduit.sender."""
-
-    def __init__(self, reverse: bool = False) -> None:
-        self._reverse = reverse
-        self._lanes: dict[Reference, VLane] = {}
-
-    def set_x(self, x_offset: float, spacing: float) -> float:
-        """Set the x coordinates for all lanes in this bundle."""
-        for i, lane in enumerate(self._lanes.values()):
-            lane.x = x_offset + i * spacing
-        return len(self) * spacing
-
-    def __getitem__(self, sender: Reference) -> VLane:
-        """Get (and create if required) the HLane for this sender."""
-        return self._lanes.setdefault(sender, VLane())
+    def __getitem__(self, sender: Reference) -> Lane:
+        """Get (and create if required) the Lane for this sender."""
+        return self._lanes.setdefault(sender, Lane(self._horizontal))
 
     def __len__(self) -> int:
         """Get number of lanes in this bundle."""
@@ -102,7 +82,7 @@ class ConduitRoute:
     """Origin point in this timeline."""
     destination: Point
     """Destination point in this timeline."""
-    lanes: list[HLane | VLane]
+    lanes: list[Lane]
     """Lanes visited (in order) between origin and destination"""
 
     def to_svg(self) -> svg.Path:
@@ -110,17 +90,17 @@ class ConduitRoute:
         x, y = self.origin()
         path: list[svg.PathData] = [svg.M(x, y)]
         for lane in self.lanes:
-            if isinstance(lane, HLane):
-                y = lane.y
+            if lane.horizontal:
+                y = lane.pos
                 assert y is not None
                 path.append(svg.V(y))
             else:
-                x = lane.x
+                x = lane.pos
                 assert x is not None
                 path.append(svg.H(x))
         assert self.lanes
         x, y = self.destination()
-        if isinstance(lane, HLane):
+        if lane.horizontal:
             path.append(svg.H(x))
             path.append(svg.V(y))
         else:
@@ -150,11 +130,11 @@ class TopConduitDuct(SvgBlock):
         """Destination (top/bottom connectors) and index in the list, per component"""
         self._routes: list[ConduitRoute] = []
 
-        self._hlanes_for_s = HLanes()
+        self._hlanes_for_s = Lanes(True)
         """Horizontal lanes for conduits going to S ports."""
-        self._hlanes_for_oi = HLanes()
+        self._hlanes_for_oi = Lanes(True)
         """Horizontal lanes for conduits going to O_I ports."""
-        self._hlanes = HLanes()
+        self._hlanes = Lanes(True)
         """Main horizontal lanes, for all conduits going left -> right."""
 
     def add_conduit_duct(self, conduit_duct: "ConduitDuct") -> None:
@@ -257,9 +237,9 @@ class TopConduitDuct(SvgBlock):
     def calc_layout(self) -> None:
         """Calculate size and layout of this component"""
         offset = settings.conduit_margin / 2
-        height = self._hlanes_for_s.set_y(offset, settings.conduit_margin)
-        height += self._hlanes_for_oi.set_y(offset + height, settings.conduit_margin)
-        height += self._hlanes.set_y(offset + height, settings.conduit_margin)
+        height = self._hlanes_for_s.set_pos(offset, settings.conduit_margin)
+        height += self._hlanes_for_oi.set_pos(offset + height, settings.conduit_margin)
+        height += self._hlanes.set_pos(offset + height, settings.conduit_margin)
         if height:
             height += settings.conduit_margin
         self.height = height
@@ -292,11 +272,11 @@ class ConduitDuct(SvgBlock):
         self._destinations: dict[Reference, int] = {}
         """Index in the self.right_components, per destination component"""
 
-        self.vlanes_out = VLanes()
+        self.vlanes_out = Lanes(False)
         """Vertical lanes, carrying conduits from left to top."""
-        self.vlanes_transfer = VLanes()
+        self.vlanes_transfer = Lanes(False)
         """Vertical lanes, carrying conduits from left to right."""
-        self.vlanes_in = VLanes()
+        self.vlanes_in = Lanes(False)
         """Vertical lanes, carrying conduits from top to right."""
 
     def add_left_connector(self, connector: ComponentBlock | TopConduitDuct) -> None:
@@ -351,9 +331,9 @@ class ConduitDuct(SvgBlock):
             lane_width = settings.port_margin
 
         offset = self.x + lane_width / 2
-        width = self.vlanes_out.set_x(offset, lane_width)
-        width += self.vlanes_transfer.set_x(offset + width, lane_width)
-        width += self.vlanes_in.set_x(offset + width, lane_width)
+        width = self.vlanes_out.set_pos(offset, lane_width)
+        width += self.vlanes_transfer.set_pos(offset + width, lane_width)
+        width += self.vlanes_in.set_pos(offset + width, lane_width)
         self.width = width
 
         # Only for debug visualization, our conduits can extend below
