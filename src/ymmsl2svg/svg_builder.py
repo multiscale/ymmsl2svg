@@ -57,11 +57,15 @@ class SVGBuilder:
             if conduit.filters:
                 continue  # Not supported yet
             sending_component = conduit.sending_component()
+            receiving_component = conduit.receiving_component()
             if len(sending_component) == 0:  # Conduit sender is a model port
                 pass  # TODO: handle model ports!
             else:
-                sender = components[sending_component]
-                sender.add_conduit(conduit)
+                components[sending_component].add_conduit(conduit)
+            if len(receiving_component) == 0:  # Conduit receiver is a model port
+                pass  # TODO: handle model ports!
+            else:
+                components[receiving_component].add_conduit(conduit)
         timeline_block.route_conduits()
         timeline_block.calc_layout()
 
