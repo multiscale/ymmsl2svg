@@ -17,6 +17,7 @@ class TimelineBlock(SvgBlock):
 
     def __init__(self, tree: TimelineTree, node: TimelineNode) -> None:
         super().__init__()
+
         self.tree = tree
         self.node = node
         if len(node.parent_components) > 1:
@@ -49,8 +50,6 @@ class TimelineBlock(SvgBlock):
             self.components.append(ComponentBlock(component, subtimelines))
             self.conduit_ducts.append(ConduitDuct())
 
-        self.calc_layout()
-
     def _iter_cd_and_components(
         self,
     ) -> Iterator[ConduitDuct | ComponentBlock]:
@@ -62,6 +61,9 @@ class TimelineBlock(SvgBlock):
 
     def calc_layout(self):
         """Calculate the size and layout of the timeline block and its contents."""
+        for subtl in self.subtimelines:
+            subtl.calc_layout()
+
         width = 0
         height = 0
         for item in self._iter_cd_and_components():

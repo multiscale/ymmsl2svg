@@ -48,7 +48,9 @@ class SVGBuilder:
         """Build the SVG for the given yMMSL model."""
         # Determine timelines
         timeline_tree = TimelineTree(self.model)
+        timeline_tree.check_consistent()
         timeline_block = TimelineBlock(timeline_tree, timeline_tree.root)
+        timeline_block.calc_layout()
 
         return svg.SVG(
             width=timeline_block.width,
