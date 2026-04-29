@@ -75,7 +75,9 @@ class ComponentBlock(SvgBlock):
         self.s_ports = self._ports_per_operator[Operator.S]
 
         self.port_positions: dict[Identifier, tuple[float, float]] = {}
-        self.conduits_per_port: dict[Identifier, list[Conduit]] = {}
+        self.conduits_per_port: dict[Identifier, list[Conduit]] = {
+            port: [] for port in self.component.ports
+        }
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
@@ -85,7 +87,7 @@ class ComponentBlock(SvgBlock):
             portname = conduit.receiving_port()
         else:
             raise RuntimeError("Unreachable")
-        self.conduits_per_port.setdefault(portname, []).append(conduit)
+        self.conduits_per_port[portname].append(conduit)
 
     def conduits_per_operator(
         self,
@@ -168,17 +170,21 @@ class ComponentBlock(SvgBlock):
                 y += settings.port_margin
 
         # TODO: position o_i/s ports correctly for multiple sub-timelines
-        x0 = self.component_x
-        for i, port in enumerate(self.o_i_ports):
-            x = x0 + (i + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self.y + self.height)
-        x0 += self.component_width - len(self.s_ports) * settings.port_margin
-        for i, port in enumerate(self.s_ports):
-            x = x0 + (i + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self.y + self.height)
-
-        # Move subtimelines
         for timeline in self.subtimelines:
+            oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
+            x0 = self.component_x + oi_offset
+            for i, port in enumerate(self.o_i_ports):
+                x = x0 + (i + 0.5) * settings.port_margin
+                self.port_positions[port.name] = (x, self.y + self.height)
+
+            # Correct s_offset when sharing this subtimeline with other components
+            s_offset = min(s_offset, len(self.s_ports) * settings.port_margin)
+            x0 = self.component_x + self.component_width + s_offset
+            for i, port in enumerate(self.s_ports):
+                x = x0 + (i + 0.5) * settings.port_margin
+                self.port_positions[port.name] = (x, self.y + self.height)
+
+            # Move subtimeline
             timeline.moveto(self.component_x, self.y + self.height)
 
     def to_svg(self) -> svg.G:

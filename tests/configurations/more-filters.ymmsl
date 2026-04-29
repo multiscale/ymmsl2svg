@@ -1,11 +1,12 @@
 ymmsl_version: v0.2
 
 models:
-  dispatch_with_filters:
+  more_filters:
     components:
       macro:
         description: Macro model
         ports:
+          f_init: init
           o_i: output
           s: input from_micro
           o_f: final
@@ -21,23 +22,21 @@ models:
         ports:
           f_init: input input2
           o_f: output
-      dispatch:
-        description: Model that runs after macro and micro
-        ports:
-          f_init: from_macro from_micro
-          o_i: output
-          s: input
       micro2:
         description: Micro model for dispatch
         ports:
           f_init: input1 input2
           o_f: output
+    ports:
+      f_init: init
+      o_f: final
+      +macro:meso:
+        o_i: out
     conduits:
-      macro.output: [meso.init, repeat micro.input2]
-      meso.final: [macro.input, last dispatch.from_micro]
+      macro.output: [meso.init, repeat micro.input2, pad micro2.input2]
+      meso.final: macro.input
       meso.output: micro.input
-      micro.output: [meso.input, last last repeat micro2.input1]
-      macro.final: dispatch.from_macro
-      dispatch.output: micro2.input2
-      micro2.output: dispatch.input
-
+      micro.output: [meso.input, micro2.input1]
+      micro2.output: [last macro.from_micro, out]
+      init: macro.init
+      macro.final: final
