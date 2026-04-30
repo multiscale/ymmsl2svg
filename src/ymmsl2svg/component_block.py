@@ -1,12 +1,22 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 import svg
-from ymmsl.v0_2 import Component, Identifier, Operator, Port
+from ymmsl.v0_2 import (
+    Component,
+    Conduit,
+    Identifier,
+    Operator,
+    Port,
+    Reference,
+    Timeline,
+)
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
+    from ymmsl2svg.conduit_ducts import ConduitDuct
     from ymmsl2svg.timeline_block import TimelineBlock
 
 
@@ -19,7 +29,11 @@ class ComponentBlock(SvgBlock):
     """SVG Block that represents a single component in a model, including its ports."""
 
     def __init__(
-        self, component: Component, subtimelines: list["TimelineBlock"]
+        self,
+        component: Component,
+        subtimelines: list["TimelineBlock"],
+        left_conduit_duct: "ConduitDuct",
+        right_conduit_duct: "ConduitDuct",
     ) -> None:
         super().__init__()
         # Geometry
@@ -39,12 +53,91 @@ class ComponentBlock(SvgBlock):
                 "is not yet implemented."
             )
 
+        # Conduit connections to the left/right of this component
+        self.left_conduit_duct = left_conduit_duct
+        self.right_conduit_duct = right_conduit_duct
+        left_conduit_duct.add_right_connector(self)
+        right_conduit_duct.add_left_connector(self)
+        if subtimelines:  # TODO: support multiple subtimelines
+            left_conduit_duct.add_right_connector(subtimelines[0].top_conduit_duct)
+            right_conduit_duct.add_left_connector(subtimelines[0].top_conduit_duct)
+        # Conduit connections to subtimelines
+        for subtl in subtimelines:
+            subtl.top_conduit_duct.add_top_component(self)
+
         # TODO: sequence ports to minimize conduit crossings
-        self.f_init_ports = ports_for_operator(component, Operator.F_INIT)
-        self.o_f_ports = ports_for_operator(component, Operator.O_F)
-        self.o_i_ports = ports_for_operator(component, Operator.O_I)
-        self.s_ports = ports_for_operator(component, Operator.S)
+        self._ports_per_operator = {
+            op: ports_for_operator(component, op) for op in Operator
+        }
+        self.f_init_ports = self._ports_per_operator[Operator.F_INIT]
+        self.o_f_ports = self._ports_per_operator[Operator.O_F]
+        self.o_i_ports = self._ports_per_operator[Operator.O_I]
+        self.s_ports = self._ports_per_operator[Operator.S]
+
         self.port_positions: dict[Identifier, tuple[float, float]] = {}
+        self.conduits_per_port: dict[Identifier, list[Conduit]] = {}
+
+    def add_conduit(self, conduit: Conduit):
+        """Register conduit for this component."""
+        if conduit.sending_component() == self.component.name:
+            portname = conduit.sending_port()
+        elif conduit.receiving_component() == self.component.name:
+            portname = conduit.receiving_port()
+        else:
+            raise RuntimeError("Unreachable")
+        self.conduits_per_port.setdefault(portname, []).append(conduit)
+
+    def conduits_per_operator(
+        self,
+        operator: Operator,
+        timeline: Timeline | None = None,
+        reverse: bool = False,
+    ) -> Iterator[Conduit]:
+        """Iterate over all conduits connected to ports of an operator.
+
+        Args:
+            operator: Operator to filter on.
+            timeline: Timeline to filter on (only applicable to O_I and S ports).
+            reversed: Reverse the order of the conduits.
+        """
+        ports = self._ports_per_operator[operator]
+        if reverse:
+            ports = reversed(ports)
+        for port in ports:
+            # TODO: filter on timeline
+            yield from self.conduits_per_port.get(port.name, [])
+
+    def ports_per_operator(
+        self,
+        operator: Operator,
+        timeline: Timeline | None = None,
+        reverse: bool = False,
+    ) -> Iterator[Reference]:
+        """Iterate over full port references of all ports of an operator.
+
+        Args:
+            operator: Operator to filter on.
+            timeline: Timeline to filter on (only applicable to O_I and S ports).
+            reversed: Reverse the order of the ports.
+        """
+        ports = self._ports_per_operator[operator]
+        if reverse:
+            ports = reversed(ports)
+        for port in ports:
+            # TODO: filter on timeline
+            yield self.component.name + port.name
+
+    def get_port_position(self, port: Identifier):
+        """Get x,y position of the port.
+
+        N.B. F_INIT and O_F ports will return the position w.r.t. the timeline that this
+        component is in. O_I and S ports will return the position w.r.t. their
+        subtimeline.
+        """
+        if self.component.ports[port].operator in (Operator.F_INIT, Operator.O_F):
+            return self.port_positions[port]
+        # Relative to subtimeline:
+        return (self.port_positions[port][0] - self.component_x, 0)
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
@@ -77,11 +170,11 @@ class ComponentBlock(SvgBlock):
         # TODO: position o_i/s ports correctly for multiple sub-timelines
         x0 = self.component_x
         for i, port in enumerate(self.o_i_ports):
-            x = x0 + (i + 1) * settings.port_margin
+            x = x0 + (i + 0.5) * settings.port_margin
             self.port_positions[port.name] = (x, self.y + self.height)
         x0 += self.component_width - len(self.s_ports) * settings.port_margin
         for i, port in enumerate(self.s_ports):
-            x = x0 + (i) * settings.port_margin
+            x = x0 + (i + 0.5) * settings.port_margin
             self.port_positions[port.name] = (x, self.y + self.height)
 
         # Move subtimelines

@@ -27,8 +27,10 @@ class TimelineBlock(SvgBlock):
 
         self.transform: svg.Transform = svg.Translate(0, 0)
 
-        self.top_conduit_duct = TopConduitDuct()
-        self.conduit_ducts: list[ConduitDuct] = [ConduitDuct()]
+        self.top_conduit_duct = TopConduitDuct(node.name)
+        self.conduit_ducts: list[ConduitDuct] = [
+            ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
+        ]
         self.components: list[ComponentBlock] = []
 
         # Subtimelines
@@ -45,10 +47,15 @@ class TimelineBlock(SvgBlock):
         # - Support interact coupling (components with shared timelines must be next to
         #   each other)
         # - Minimize conduit crossings
-        for component in node.components:
+        for i, component in enumerate(node.components):
             subtimelines = subtl_per_component.get(component.name, [])
-            self.components.append(ComponentBlock(component, subtimelines))
-            self.conduit_ducts.append(ConduitDuct())
+            cblock = ComponentBlock(
+                component,
+                subtimelines,
+                self.conduit_ducts[i],
+                self.conduit_ducts[i + 1],
+            )
+            self.components.append(cblock)
 
     def _iter_cd_and_components(
         self,
@@ -59,10 +66,21 @@ class TimelineBlock(SvgBlock):
             yield component
         yield self.conduit_ducts[-1]
 
+    def map_components(self) -> dict[Reference, ComponentBlock]:
+        """Recursively map all ComponentBlocks by their component name"""
+        result = {c.component.name: c for c in self.components}
+        for subtl in self.subtimelines:
+            result.update(subtl.map_components())
+        return result
+
+    def route_conduits(self) -> None:
+        self.top_conduit_duct.route_conduits()
+
     def calc_layout(self):
         """Calculate the size and layout of the timeline block and its contents."""
         for subtl in self.subtimelines:
             subtl.calc_layout()
+        self.top_conduit_duct.calc_layout()
 
         width = 0
         height = 0
@@ -91,9 +109,9 @@ class TimelineBlock(SvgBlock):
         group = super().to_svg()
         assert group.elements is not None
         # Add sub-elements
-        group.elements.append(self.top_conduit_duct.to_svg())
         group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
         group.elements.extend(tl.to_svg() for tl in self.subtimelines)
+        group.elements.append(self.top_conduit_duct.to_svg())
         # Set translation
         group.transform = [self.transform]
         return group

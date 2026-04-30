@@ -38,8 +38,16 @@ text {
     stroke-width: 2;
 }
 #port-f_init, #port-s {
-    fill: none;
+    fill: white;
 }
 #port-o_f, #port-o_i {
     fill: black;
+}
+
+/* Conduit styles */
+.conduit {
+    fill: none;
+    stroke: #000;
+    stroke-linecap: square;
+    stroke-width: ${conduit_width};
 }
