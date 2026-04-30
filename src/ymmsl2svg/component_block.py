@@ -144,7 +144,10 @@ class ComponentBlock(SvgBlock):
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
         subtimeline_width = sum(subtl.width for subtl in self.subtimelines)
-        self.component_width = max(settings.component_width, subtimeline_width)
+        text_width = self.estimate_name_width() + 2 * settings.text_margin
+        self.component_width = max(
+            settings.component_width, subtimeline_width, text_width
+        )
         self.width = self.component_width
 
         # Make space for f_init and o_f ports
@@ -184,6 +187,20 @@ class ComponentBlock(SvgBlock):
 
             # Move subtimeline
             timeline.moveto(self.component_x, self.y + self.height)
+
+    def estimate_name_width(self) -> float:
+        """Estimate the width (in pixels) of the component's name."""
+        # This is intended to slightly overestimate the width (which is prettier than
+        # underestimation). Note that the exact size depends on the font used by the SVG
+        # viewer, so better estimates (e.g. using pillow to calculate the bounding box)
+        # may still be wrong.
+
+        # See `scripts/textsize.py` for character sizes. Assumed font size is 16px.
+        # Narrow characters: (3-6 pixels) -> estimate as 5 pixels wide
+        # Broad characters: (11+ pixels) -> estimate as 13 pixels wide
+        # Medium characters: (8-10 pixels) -> estimate as 10 pixels wide
+        lengths = {c: 5 for c in "ijlrIft.[]"} | {c: 13 for c in "BCPRUDGHNOQwmMW"}
+        return sum(lengths.get(c, 10) for c in str(self.component.name))
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing this component and its ports."""

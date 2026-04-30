@@ -16,6 +16,9 @@ class Settings:
     component_border: float = 2
     """Border width of a component."""
 
+    text_margin: float = 5
+    """Approximate margin around the component name."""
+
     port_size: float = 7  # TODO: rescale port graphics based on this value?
     """Size of a port. N.B. adjusting this setting only affects spacing, not the actual
     size of the ports."""
