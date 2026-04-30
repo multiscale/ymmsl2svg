@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 import svg
@@ -128,6 +128,34 @@ class ComponentBlock(SvgBlock):
         for port in ports:
             # TODO: filter on timeline
             yield self.component.name + port.name
+
+    def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
+        """Comparison function for component ports"""
+        op = self.component.ports[port1].operator
+        for p in self._ports_per_operator[op]:
+            if p.name == port1:
+                return -1 if op is Operator.O_F else 1
+            elif p.name == port2:
+                return 1 if op is Operator.O_F else -1
+        raise RuntimeError("Unreachable")
+
+    def sort_output_ports(self, key: Callable) -> None:
+        """Sort O_I/O_F ports in this component"""
+
+        def port_sort(port: Port) -> tuple[int, ...]:
+            return key(self.conduits_per_port[port.name])
+
+        self.o_i_ports.sort(key=port_sort)
+        self.o_f_ports.sort(key=port_sort, reverse=True)
+
+    def sort_input_ports(self, key: Callable) -> None:
+        """Sort F_INIT/S ports in this component"""
+
+        def port_sort(port: Port) -> tuple[int, ...]:
+            return key(self.conduits_per_port[port.name])
+
+        self.f_init_ports.sort(key=port_sort)
+        self.s_ports.sort(key=port_sort)
 
     def get_port_position(self, port: Identifier):
         """Get x,y position of the port.

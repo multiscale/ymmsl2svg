@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import svg
 from ymmsl.v0_2 import Reference, TimelineNode, TimelineTree
@@ -57,9 +57,7 @@ class TimelineBlock(SvgBlock):
             )
             self.components.append(cblock)
 
-    def _iter_cd_and_components(
-        self,
-    ) -> Iterator[ConduitDuct | ComponentBlock]:
+    def _iter_cd_and_components(self) -> Iterator[ConduitDuct | ComponentBlock]:
         """Iterate over all ConduitDucts and ComponentBlocks (left to right)."""
         for i, component in enumerate(self.components):
             yield self.conduit_ducts[i]
@@ -72,6 +70,30 @@ class TimelineBlock(SvgBlock):
         for subtl in self.subtimelines:
             result.update(subtl.map_components())
         return result
+
+    def get_component_sort_keys(self) -> dict[Reference, tuple[int, ...]]:
+        """Recursively calculate the sort key of each component (for sorting ports)."""
+        result = {}
+        for i, component in enumerate(self.components):
+            result[component.component.name] = (i,)
+            for subtimeline in component.subtimelines:
+                for compname, key in subtimeline.get_component_sort_keys().items():
+                    result[compname] = (i,) + key
+        return result
+
+    def sort_output_ports(self, key: Callable) -> None:
+        """Sort O_I/O_F ports in all components in this timeline and sub-timelines."""
+        for component in self.components:
+            component.sort_output_ports(key)
+        for subtimeline in self.subtimelines:
+            subtimeline.sort_output_ports(key)
+
+    def sort_input_ports(self, key: Callable) -> None:
+        """Sort F_INIT/S ports in all components in this timeline and sub-timelines."""
+        for component in self.components:
+            component.sort_input_ports(key)
+        for subtimeline in self.subtimelines:
+            subtimeline.sort_input_ports(key)
 
     def route_conduits(self) -> None:
         self.top_conduit_duct.route_conduits()
