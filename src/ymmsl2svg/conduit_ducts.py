@@ -210,7 +210,7 @@ class TopConduitDuct(SvgBlock):
                 Operator.O_I, self.timeline, reverse=True
             ):
                 self.ducts[0].vlanes_in[port]
-            # TODO: Reserve space for all S ports in the last component
+            # Reserve space for all S ports in the last component
             for port in self.top_components[-1].ports_per_operator(
                 Operator.S, self.timeline
             ):
@@ -331,15 +331,19 @@ class ConduitDuct(SvgBlock):
         if isinstance(connector, TopConduitDuct):
             connector.left_conduit_duct = self
 
+    def _fill_destinations(self) -> None:
+        """Build lookup map for component destinations."""
+        for i, connector in enumerate(self.right_connectors):
+            if isinstance(connector, ComponentBlock):
+                self._destinations[connector.component.name] = i
+            else:
+                for destination in connector.destinations():
+                    self._destinations.setdefault(destination, i)
+
     def destinations(self) -> Iterable[Reference]:
         """Return all components reachable through this duct."""
         if not self._destinations:
-            for i, connector in enumerate(self.right_connectors):
-                if isinstance(connector, ComponentBlock):
-                    self._destinations[connector.component.name] = i
-                else:
-                    for destination in connector.destinations():
-                        self._destinations.setdefault(destination, i)
+            self._fill_destinations()
         return self._destinations.keys()
 
     def get_point_for(self, conduit: Conduit) -> Point:
