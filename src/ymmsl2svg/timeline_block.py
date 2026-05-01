@@ -27,7 +27,7 @@ class TimelineBlock(SvgBlock):
 
         self.transform: svg.Transform = svg.Translate(0, 0)
 
-        self.top_conduit_duct = TopConduitDuct(node.name)
+        self.top_conduit_duct = TopConduitDuct(self, node.name)
         self.conduit_ducts: list[ConduitDuct] = [
             ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
         ]

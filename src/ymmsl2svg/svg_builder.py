@@ -54,8 +54,6 @@ class SVGBuilder:
         # Route conduits
         components = timeline_block.map_components()
         for conduit in self.model.conduits:
-            if conduit.filters:
-                continue  # Not supported yet
             sending_component = conduit.sending_component()
             receiving_component = conduit.receiving_component()
             if len(sending_component) == 0:  # Conduit sender is a model port
