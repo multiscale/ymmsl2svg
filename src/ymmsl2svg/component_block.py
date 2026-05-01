@@ -177,8 +177,6 @@ class ComponentBlock(SvgBlock):
                 x = x0 + (i + 0.5) * settings.port_margin
                 self.port_positions[port.name] = (x, self.y + self.height)
 
-            # Correct s_offset when sharing this subtimeline with other components
-            s_offset = min(s_offset, len(self.s_ports) * settings.port_margin)
             x0 = self.component_x + self.component_width + s_offset
             for i, port in enumerate(self.s_ports):
                 x = x0 + (i + 0.5) * settings.port_margin
