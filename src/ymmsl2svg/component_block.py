@@ -65,7 +65,6 @@ class ComponentBlock(SvgBlock):
         for subtl in subtimelines:
             subtl.top_conduit_duct.add_top_component(self)
 
-        # TODO: sequence ports to minimize conduit crossings
         self._ports_per_operator = {
             op: ports_for_operator(component, op) for op in Operator
         }
@@ -142,7 +141,7 @@ class ComponentBlock(SvgBlock):
     def sort_output_ports(self, key: Callable) -> None:
         """Sort O_I/O_F ports in this component"""
 
-        def port_sort(port: Port) -> tuple[int, ...]:
+        def port_sort(port: Port):
             return key(self.conduits_per_port[port.name])
 
         self.o_i_ports.sort(key=port_sort)
@@ -151,7 +150,7 @@ class ComponentBlock(SvgBlock):
     def sort_input_ports(self, key: Callable) -> None:
         """Sort F_INIT/S ports in this component"""
 
-        def port_sort(port: Port) -> tuple[int, ...]:
+        def port_sort(port: Port):
             return key(self.conduits_per_port[port.name])
 
         self.f_init_ports.sort(key=port_sort)

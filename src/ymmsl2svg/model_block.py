@@ -3,7 +3,7 @@ import sys
 from functools import cmp_to_key
 
 import svg
-from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, TimelineTree
+from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, Port, TimelineTree
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
@@ -19,7 +19,18 @@ class ModelBlock(SvgBlock):
         super().__init__()
         self.model = model
 
-        self.ports = {}
+        self._ports_per_operator = {
+            op: [port for port in self.model.ports.values() if port.operator is op]
+            for op in Operator
+        }
+        self.f_init_ports = self._ports_per_operator[Operator.F_INIT]
+        self.o_f_ports = self._ports_per_operator[Operator.O_F]
+        self.o_i_ports = self._ports_per_operator[Operator.O_I]
+        self.s_ports = self._ports_per_operator[Operator.S]
+        self.port_indices: dict[Identifier, int] = {}
+        self.conduits_per_port: dict[Identifier, list[Conduit]] = {
+            port: [] for port in self.model.ports
+        }
 
         # Determine timelines
         self.timeline_tree = TimelineTree(self.model)
@@ -34,41 +45,60 @@ class ModelBlock(SvgBlock):
             sending_component = conduit.sending_component()
             receiving_component = conduit.receiving_component()
             self.components.get(sending_component, self).add_conduit(conduit)
-            self.components.get(receiving_component, self).add_conduit(conduit)
+            if sending_component != receiving_component:
+                self.components.get(receiving_component, self).add_conduit(conduit)
         self.sort_ports_and_conduits()
         self.timeline_block.route_conduits()
         self.calc_layout()
 
+        # Get indices of our O_F ports
+        tcd = self.timeline_block.top_conduit_duct
+        for port in self.o_f_ports:
+            for conduit in self.conduits_per_port[port.name]:
+                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
+
     def add_conduit(self, conduit: Conduit) -> None:
         """Add a conduit going to / originating from a model port."""
-        # FIXME: handle case where model is both sending and receiving component
         if len(conduit.sending_component()) == 0:
-            port = self.model.ports[conduit.sending_port()]
-        else:
-            assert len(conduit.receiving_component()) == 0
-            port = self.model.ports[conduit.receiving_port()]
-        tcd = self.timeline_block.top_conduit_duct
-        if port.operator is Operator.F_INIT:
-            idx = tcd.add_virtual_port(conduit, left=True)
-            self.ports[conduit.sending_port()] = idx
-        elif port.operator is Operator.O_F:
-            idx = tcd.add_virtual_port(conduit, left=False)
-            self.ports[conduit.receiving_port()] = idx
-        else:
-            logger.warning(
-                "Ignoring %s: visualization of %s ports on models is not implemented.",
-                conduit,
-                port.operator.name,
-            )
+            portname = conduit.sending_port()
+            self.conduits_per_port[portname].append(conduit)
+        if len(conduit.receiving_component()) == 0:
+            portname = conduit.receiving_port()
+            self.conduits_per_port[portname].append(conduit)
 
     def sort_ports_and_conduits(self) -> None:
+
         if settings.resequence_ports:
             # First determine the sort order for all components
             self.component_sort_keys = self.timeline_block.get_component_sort_keys()
             # First sort output ports
-            self.timeline_block.sort_output_ports(cmp_to_key(self._output_cmp))
+            key = cmp_to_key(self._output_cmp)
+
+            def port_sort(port: Port):
+                return key(self.conduits_per_port[port.name])
+
+            # Sort F_INIT ports
+            self.f_init_ports.sort(key=port_sort, reverse=True)
+
+        # Reserve space in the top conduit duct for our (now-sorted) F_INIT ports:
+        tcd = self.timeline_block.top_conduit_duct
+        for port in self.f_init_ports:
+            for conduit in self.conduits_per_port[port.name]:
+                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=True)
+
+        if settings.resequence_ports:
+            # Sort output ports of all components:
+            self.timeline_block.sort_output_ports(key)
             # And then input ports
             self.timeline_block.sort_input_ports(cmp_to_key(self._input_cmp))
+            # N.B. Model O_F ports are sorted by default by the conduit routing algo.
+
+        if self.s_ports or self.o_i_ports:
+            logger.warning(
+                "Visualization of S ports and O_I ports on the model is not "
+                "implemented. These ports will not be visible, and conduits from and "
+                "to these conduits may be drawn incorrectly or not at all."
+            )
 
     def _sorted_component_keys(self, conduits: list[Conduit]) -> list[tuple[int, ...]]:
         """Return sorted component keys of the conduit receivers."""
@@ -127,7 +157,7 @@ class ModelBlock(SvgBlock):
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
         """Comparison function for model ports"""
-        return -1 if self.ports[port1] < self.ports[port2] else 1
+        return -1 if self.port_indices[port1] < self.port_indices[port2] else 1
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
@@ -147,10 +177,11 @@ class ModelBlock(SvgBlock):
             height=self.height - 2 * pm - settings.model_border,
             class_=["model"],
             id=f"model-{self.model.name}",
+            elements=[svg.Title(text=f"Model: {self.model.name}")],
         )
         group.elements.append(model_block)
         # Draw ports
-        for portname, idx in self.ports.items():
+        for portname, idx in self.port_indices.items():
             port = self.model.ports[portname]
             title = svg.Title(text=str(port.name))
             if port.operator == Operator.F_INIT:
