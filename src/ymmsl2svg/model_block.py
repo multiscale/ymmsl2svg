@@ -3,7 +3,7 @@ import sys
 from functools import cmp_to_key
 
 import svg
-from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, Port, TimelineTree
+from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, TimelineTree
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
@@ -51,11 +51,18 @@ class ModelBlock(SvgBlock):
         self.timeline_block.route_conduits()
         self.calc_layout()
 
-        # Get indices of our O_F ports
+        # Get indices of our O_F ports so we can draw them in to_svg()
         tcd = self.timeline_block.top_conduit_duct
         for port in self.o_f_ports:
             for conduit in self.conduits_per_port[port.name]:
                 self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
+        # We currently don't support drawing model S or O_I ports:
+        if self.s_ports or self.o_i_ports:
+            logger.warning(
+                "Visualization of S ports and O_I ports on the model is not "
+                "implemented. These ports will not be visible, and conduits from and "
+                "to these conduits may be drawn incorrectly or not at all."
+            )
 
     def add_conduit(self, conduit: Conduit) -> None:
         """Add a conduit going to / originating from a model port."""
@@ -67,18 +74,22 @@ class ModelBlock(SvgBlock):
             self.conduits_per_port[portname].append(conduit)
 
     def sort_ports_and_conduits(self) -> None:
+        """Sort ports for all components.
 
+        Note: this function also registers conduits coming from model ports, which needs
+        to happen after sorting input ports and before sorting the output ports
+        (otherwise self.cmp_ports will not work).
+        """
         if settings.resequence_ports:
-            # First determine the sort order for all components
+            # Determine the sort order for all components
             self.component_sort_keys = self.timeline_block.get_component_sort_keys()
-            # First sort output ports
-            key = cmp_to_key(self._output_cmp)
-
-            def port_sort(port: Port):
-                return key(self.conduits_per_port[port.name])
-
+            # Sort key for output ports
+            output_sort_key = cmp_to_key(self._output_cmp)
             # Sort F_INIT ports
-            self.f_init_ports.sort(key=port_sort, reverse=True)
+            self.f_init_ports.sort(
+                key=lambda port: output_sort_key(self.conduits_per_port[port.name]),
+                reverse=True,
+            )
 
         # Reserve space in the top conduit duct for our (now-sorted) F_INIT ports:
         tcd = self.timeline_block.top_conduit_duct
@@ -88,17 +99,10 @@ class ModelBlock(SvgBlock):
 
         if settings.resequence_ports:
             # Sort output ports of all components:
-            self.timeline_block.sort_output_ports(key)
+            self.timeline_block.sort_output_ports(output_sort_key)
             # And then input ports
             self.timeline_block.sort_input_ports(cmp_to_key(self._input_cmp))
             # N.B. Model O_F ports are sorted by default by the conduit routing algo.
-
-        if self.s_ports or self.o_i_ports:
-            logger.warning(
-                "Visualization of S ports and O_I ports on the model is not "
-                "implemented. These ports will not be visible, and conduits from and "
-                "to these conduits may be drawn incorrectly or not at all."
-            )
 
     def _sorted_component_keys(self, conduits: list[Conduit]) -> list[tuple[int, ...]]:
         """Return sorted component keys of the conduit receivers."""
