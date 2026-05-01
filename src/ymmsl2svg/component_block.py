@@ -175,13 +175,9 @@ class ComponentBlock(SvgBlock):
         self.component_width = max(
             settings.component_width, subtimeline_width, text_width
         )
-        self.width = self.component_width
-
         # Make space for f_init and o_f ports
-        f_init_width = settings.port_size if self.f_init_ports else 0
-        o_f_width = settings.port_size if self.o_f_ports else 0
-        self.width += f_init_width + o_f_width
-        self.component_x = self.x + f_init_width
+        self.width = self.component_width + 2 * settings.port_size
+        self.component_x = self.x + settings.port_size
 
         max_num_ports = max(len(self.f_init_ports), len(self.o_f_ports))
         port_height = max_num_ports * settings.port_margin
