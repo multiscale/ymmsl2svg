@@ -269,6 +269,11 @@ class TopConduitDuct(SvgBlock):
                 origin = PortPoint(component, conduit.sending_port())
                 yield (idx, origin, conduit)
         # Conduits coming from the parent timeline
+        if self.left_conduit_duct is None:
+            # Reserve vlanes of model ports in reverse order
+            for name in reversed(self.left_vports):
+                self.ducts[0].vlanes_in[name]
+        # Then assign conduits in regular order
         for idx, conduits in enumerate(self.left_vports.values()):
             origin = VirtualPortPoint(self, idx, left=True)
             for conduit in conduits:

@@ -30,13 +30,11 @@ models:
     ports:
       f_init: init
       o_f: final
-      +macro:meso:
-        o_i: out
     conduits:
       macro.output: [meso.init, repeat micro.input2, pad micro2.input2]
       meso.final: macro.input
       meso.output: micro.input
       micro.output: [meso.input, micro2.input1]
-      micro2.output: [last macro.from_micro, out]
+      micro2.output: last macro.from_micro
       init: macro.init
       macro.final: final

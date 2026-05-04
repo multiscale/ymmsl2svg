@@ -4,10 +4,10 @@ from importlib.resources import files
 from string import Template
 
 import svg
-from ymmsl.v0_2 import Model, TimelineTree
+from ymmsl.v0_2 import Model
 
+from ymmsl2svg.model_block import ModelBlock
 from ymmsl2svg.settings import settings
-from ymmsl2svg.timeline_block import TimelineBlock
 
 
 def _get_style() -> str:
@@ -46,33 +46,14 @@ class SVGBuilder:
 
     def build_svg(self) -> svg.SVG:
         """Build the SVG for the given yMMSL model."""
-        # Determine timelines
-        timeline_tree = TimelineTree(self.model)
-        timeline_tree.check_consistent()
-        timeline_block = TimelineBlock(timeline_tree, timeline_tree.root)
-
-        # Route conduits
-        components = timeline_block.map_components()
-        for conduit in self.model.conduits:
-            sending_component = conduit.sending_component()
-            receiving_component = conduit.receiving_component()
-            if len(sending_component) == 0:  # Conduit sender is a model port
-                pass  # TODO: handle model ports!
-            else:
-                components[sending_component].add_conduit(conduit)
-            if len(receiving_component) == 0:  # Conduit receiver is a model port
-                pass  # TODO: handle model ports!
-            else:
-                components[receiving_component].add_conduit(conduit)
-        timeline_block.route_conduits()
-        timeline_block.calc_layout()
+        model = ModelBlock(self.model)
 
         return svg.SVG(
-            width=timeline_block.width,
-            height=timeline_block.height,
+            width=model.width,
+            height=model.height,
             elements=[
                 self._style(),
                 self._defs(),
-                timeline_block.to_svg(),
+                model.to_svg(),
             ],
         )

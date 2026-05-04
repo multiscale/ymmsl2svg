@@ -6,6 +6,9 @@ class Settings:
     debug: bool = True
     """Enable debug visualizations."""
 
+    model_border: float = 2
+    """Border width of the model."""
+
     component_width: float = 100
     """Minimum width of each component."""
     component_height: float = 50

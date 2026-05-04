@@ -13,11 +13,22 @@
 .ComponentBlock {
     fill: rgb(134, 146, 255);
 }
+.ModelBlock {
+    fill: #baffbd;
+}
 
 /* Global styles */
 text {
     font-family: sans-serif;
     font-size: 16px;
+}
+
+/* Model styles */
+.model {
+    rx: 1;
+    fill: #eee;
+    stroke: #000;
+    stroke-width: ${model_border};
 }
 
 /* Component styles */

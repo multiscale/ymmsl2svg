@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 from typing import TextIO
@@ -26,6 +27,7 @@ def main(ymmsl_files: list[Path], output: TextIO | None, debug: bool):
     Arguments:
       YMMSL_FILES:  The yMMSL file containing the model you want to visualize.
     """
+    logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s: %(message)s")
     if len(ymmsl_files) > 1:
         raise NotImplementedError(
             "Stacking multiple yMMSL files is not yet implemented"
