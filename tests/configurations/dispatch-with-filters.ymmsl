@@ -6,7 +6,7 @@ models:
       macro:
         description: Macro model
         ports:
-          o_i: output
+          o_i: output disconnected
           s: input from_micro
           o_f: final
       meso:

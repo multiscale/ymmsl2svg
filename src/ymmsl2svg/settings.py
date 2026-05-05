@@ -24,6 +24,9 @@ class Settings:
     size of the ports."""
     port_margin: float = 10
     """Size between the centers of two ports."""
+    resequence_ports: bool = True
+    """Allow resequencing ports to reduce conduit crossings. When set to False, the
+    ports will be ordered as they are defined in the yMMSL file."""
 
     conduit_margin: float = 4  # Must be <= port_margin!
     conduit_width: float = 2

@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 import svg
@@ -65,7 +65,6 @@ class ComponentBlock(SvgBlock):
         for subtl in subtimelines:
             subtl.top_conduit_duct.add_top_component(self)
 
-        # TODO: sequence ports to minimize conduit crossings
         self._ports_per_operator = {
             op: ports_for_operator(component, op) for op in Operator
         }
@@ -129,6 +128,34 @@ class ComponentBlock(SvgBlock):
             # TODO: filter on timeline
             yield self.component.name + port.name
 
+    def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
+        """Comparison function for component ports"""
+        op = self.component.ports[port1].operator
+        for p in self._ports_per_operator[op]:
+            if p.name == port1:
+                return -1 if op is Operator.O_F else 1
+            elif p.name == port2:
+                return 1 if op is Operator.O_F else -1
+        raise RuntimeError("Unreachable")
+
+    def sort_output_ports(self, key: Callable) -> None:
+        """Sort O_I/O_F ports in this component"""
+
+        def port_sort(port: Port):
+            return key(self.conduits_per_port[port.name])
+
+        self.o_i_ports.sort(key=port_sort)
+        self.o_f_ports.sort(key=port_sort, reverse=True)
+
+    def sort_input_ports(self, key: Callable) -> None:
+        """Sort F_INIT/S ports in this component"""
+
+        def port_sort(port: Port):
+            return key(self.conduits_per_port[port.name])
+
+        self.f_init_ports.sort(key=port_sort)
+        self.s_ports.sort(key=port_sort)
+
     def get_port_position(self, port: Identifier):
         """Get x,y position of the port.
 
@@ -148,13 +175,9 @@ class ComponentBlock(SvgBlock):
         self.component_width = max(
             settings.component_width, subtimeline_width, text_width
         )
-        self.width = self.component_width
-
         # Make space for f_init and o_f ports
-        f_init_width = settings.port_size if self.f_init_ports else 0
-        o_f_width = settings.port_size if self.o_f_ports else 0
-        self.width += f_init_width + o_f_width
-        self.component_x = self.x + f_init_width
+        self.width = self.component_width + 2 * settings.port_size
+        self.component_x = self.x + settings.port_size
 
         max_num_ports = max(len(self.f_init_ports), len(self.o_f_ports))
         port_height = max_num_ports * settings.port_margin

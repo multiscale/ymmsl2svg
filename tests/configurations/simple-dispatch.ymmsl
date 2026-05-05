@@ -2,14 +2,24 @@ ymmsl_version: v0.2
 
 models:
   dispatch:
+    ports:
+      f_init: input1 input2 input3 input4
+      o_f: output
     components:
       first:
         description: First component
         ports:
+          f_init: input1 input2 input3 input4
           o_f: output
       second:
         description: Second component
         ports:
-          f_init: input 
+          f_init: input
+          o_f: output
     conduits:
+      input1: first.input1
+      input2: first.input2
+      input3: first.input3
+      input4: first.input4
       first.output: second.input
+      second.output: output
