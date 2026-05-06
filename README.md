@@ -64,6 +64,7 @@ future:
   - Allow changing settings / parameters from the Command Line interface.
 - **Additional features**
   - Interactive highlight of connected conduits when hovering over components or ports.
+  - Add an option to draw parallel components under eachother.
 
 <a name="footnote1">1</a>: The SVG generation currently fails for models containing
 this.<br/>
