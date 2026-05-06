@@ -26,9 +26,9 @@ Note that not `ymmsl2svg` cannot visualize all valid yMMSL configurations, see
 Click to open the image in a new tab and enable interactive features, such as tooltips
 with the port name when hovering over a port.
 
-[![Dispatch submodel with model ports](examples/simple-dispatch.svg)](examples/simple-dispatch.svg)
+[![Dispatch submodel with model ports](examples/simple-dispatch.svg)](https://raw.githubusercontent.com/multiscale/ymmsl2svg/refs/heads/main/examples/simple-dispatch.svg)
 
-[![alt text](examples/macro-micro-dispatched.svg)](examples/macro-micro-dispatched.svg)
+[![alt text](examples/macro-micro-dispatched.svg)](https://raw.githubusercontent.com/multiscale/ymmsl2svg/refs/heads/main/examples/macro-micro-dispatched.svg)
 
 ## Usage
 
