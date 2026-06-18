@@ -62,3 +62,7 @@ text {
     stroke-linecap: square;
     stroke-width: ${conduit_width};
 }
+.conduit:hover {
+    stroke: #1565c0;
+    stroke-width: 4;
+}
