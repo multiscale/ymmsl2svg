@@ -181,7 +181,6 @@ class ModelBlock(SvgBlock):
             height=self.height - 2 * pm - settings.model_border,
             class_=["model"],
             id=f"model-{self.model.name}",
-            elements=[svg.Title(text=f"Model: {self.model.name}")],
         )
         group.elements.append(model_block)
         # Draw ports
