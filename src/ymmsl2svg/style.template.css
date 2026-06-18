@@ -23,6 +23,13 @@ text {
     font-size: 16px;
 }
 
+/* Shared highlight used for every hover (components and conduits), so the
+   interactive feedback is defined in one place. */
+:root {
+    --highlight-stroke: #1565c0;
+    --highlight-width: 4;
+}
+
 /* Model styles */
 .model {
     rx: 1;
@@ -43,8 +50,8 @@ text {
     dominant-baseline: middle;
 }
 .component:hover {
-    stroke: #1565c0;
-    stroke-width: 4;
+    stroke: var(--highlight-stroke);
+    stroke-width: var(--highlight-width);
 }
 
 /* Port styles */
@@ -66,7 +73,16 @@ text {
     stroke-linecap: square;
     stroke-width: ${conduit_width};
 }
-.conduit:hover {
-    stroke: #1565c0;
-    stroke-width: 4;
+/* Wide invisible hover/click target around each conduit: gives a much larger
+   target than the thin visible line. Hovering it (or the line) highlights the
+   visible line via the group rule below, so no separate .conduit:hover needed. */
+.conduit-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 10;
+    pointer-events: stroke;
+}
+.conduit-group:hover .conduit {
+    stroke: var(--highlight-stroke);
+    stroke-width: var(--highlight-width);
 }

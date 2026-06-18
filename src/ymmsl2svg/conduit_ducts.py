@@ -141,8 +141,8 @@ class ConduitRoute:
     conduit: Conduit
     """The conduit this route represents (used for the hover label)."""
 
-    def to_svg(self) -> svg.Path:
-        """Create an SVG Path to describe this conduit route."""
+    def to_svg(self) -> svg.G:
+        """Create an SVG group (visible line + wide hover target) for the route."""
         x, y = self.origin()
         path: list[svg.PathData] = [svg.M(x, y)]
         for lane in self.lanes:
@@ -163,7 +163,11 @@ class ConduitRoute:
             path.append(svg.V(y))
             path.append(svg.H(x))
         title = svg.Title(text=f"{self.conduit.sender} → {self.conduit.receiver}")
-        return svg.Path(d=path, class_=["conduit"], elements=[title])
+        # A wide transparent "hit" path gives a much larger hover/tooltip target
+        # than the thin visible line; hovering the group highlights the line.
+        hit = svg.Path(d=path, class_=["conduit-hit"], elements=[title])
+        line = svg.Path(d=path, class_=["conduit"])
+        return svg.G(class_=["conduit-group"], elements=[hit, line])
 
 
 class TopConduitDuct(SvgBlock):
