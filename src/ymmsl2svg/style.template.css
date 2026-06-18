@@ -42,6 +42,10 @@ text {
     text-anchor: middle;
     dominant-baseline: middle;
 }
+.component:hover {
+    stroke: #1565c0;
+    stroke-width: 4;
+}
 
 /* Port styles */
 #port-f_init, #port-o_f, #port-o_i, #port-s {
