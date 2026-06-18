@@ -34,7 +34,8 @@ class ModelBlock(SvgBlock):
 
         # Determine timelines
         self.timeline_tree = TimelineTree(self.model)
-        self.timeline_tree.check_consistent()
+        if settings.check_timelines:
+            self.timeline_tree.check_consistent()
 
         # Create graph components
         self.timeline_block = TimelineBlock(self.timeline_tree, self.timeline_tree.root)

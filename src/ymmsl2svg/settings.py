@@ -6,6 +6,10 @@ class Settings:
     debug: bool = True
     """Enable debug visualizations."""
 
+    check_timelines: bool = True
+    """Verify timeline consistency before drawing. Set False for a best-effort
+    drawing of models whose timelines don't validate (e.g. time-scale bridges)."""
+
     model_border: float = 2
     """Border width of the model."""
 
