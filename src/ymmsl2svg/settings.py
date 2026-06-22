@@ -36,6 +36,10 @@ class Settings:
     """Render the port icons (diamonds for F_INIT/O_F, circles for O_I/S). Disable via
     `disable_port_icons`, which also collapses the spacing the icons reserved."""
 
+    color_conduits: bool = True
+    """Colour each conduit by its port basename and draw a colour legend. When False,
+    conduits are drawn black and no legend is shown."""
+
     conduit_margin: float = 4  # Must be <= port_margin!
     conduit_width: float = 2
 

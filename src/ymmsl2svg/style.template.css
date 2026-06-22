@@ -70,10 +70,12 @@ svg {
     fill: black;
 }
 
-/* Conduit styles */
+/* Conduit styles. The stroke colour comes from the per-line --conduit-color
+   custom property (set by the route, derived from the port basename), falling
+   back to black. */
 .conduit {
     fill: none;
-    stroke: #000;
+    stroke: var(--conduit-color, #000);
     stroke-linecap: square;
     stroke-width: ${conduit_width};
 }

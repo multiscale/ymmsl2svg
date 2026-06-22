@@ -21,9 +21,19 @@ _path_type = click.Path(exists=True, path_type=Path)
     help="Draw port icons. Use --no-port-icons to omit them and collapse the spacing "
     "they reserve (ports attach directly to the component edge).",
 )
+@click.option(
+    "--color-conduits/--no-color-conduits",
+    default=True,
+    help="Colour each conduit by its port basename and show a colour legend. Use "
+    "--no-color-conduits to draw conduits black with no legend.",
+)
 @click.version_option()
 def main(
-    ymmsl_files: list[Path], output: TextIO | None, debug: bool, port_icons: bool
+    ymmsl_files: list[Path],
+    output: TextIO | None,
+    debug: bool,
+    port_icons: bool,
+    color_conduits: bool,
 ):
     """Generate an SVG visualization for the provided yMMSL.
 
@@ -42,6 +52,7 @@ def main(
         )
 
     settings.debug = debug
+    settings.color_conduits = color_conduits
     if not port_icons:
         settings.disable_port_icons()
     svg = ymmsl2svg(ymmsl_files[0])
