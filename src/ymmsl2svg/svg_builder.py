@@ -32,6 +32,8 @@ class SVGBuilder:
 
     def _defs(self) -> svg.Defs:
         """Reusable graphic components (e.g. port visualizations)."""
+        if not settings.draw_port_icons:
+            return svg.Defs(elements=[])
         f_init = svg.Path(
             id="port-f_init",
             d=[svg.M(1, 0), svg.L(4, -3), svg.L(7, 0), svg.L(4, 3), svg.Z()],
