@@ -24,8 +24,12 @@ text {
 }
 
 /* Shared highlight used for every hover (components and conduits), so the
-   interactive feedback is defined in one place. */
-:root {
+   interactive feedback is defined in one place. Defined on `svg` (not `:root`)
+   so the custom properties resolve even when the SVG is inlined inside a shadow
+   DOM (e.g. Panel/Bokeh ReactiveHTML): `:root` matches the document root, which
+   is outside the shadow tree, leaving `var(--highlight-stroke)` undefined and
+   the hover stroke falling back to `none`. */
+svg {
     --highlight-stroke: #1565c0;
     --highlight-width: 4;
 }
