@@ -258,16 +258,17 @@ class ComponentBlock(SvgBlock):
         group.elements.extend([component, text])
 
         # Draw ports
-        for ports, use_id in [
-            (self.f_init_ports, "#port-f_init"),
-            (self.o_f_ports, "#port-o_f"),
-            (self.o_i_ports, "#port-o_i"),
-            (self.s_ports, "#port-s"),
-        ]:
-            for port in ports:
-                x, y = self.port_positions[port.name]
-                title = svg.Title(text=str(port.name))
-                use = svg.Use(href=use_id, x=x, y=y, elements=[title])
-                group.elements.append(use)
+        if settings.draw_port_icons:
+            for ports, use_id in [
+                (self.f_init_ports, "#port-f_init"),
+                (self.o_f_ports, "#port-o_f"),
+                (self.o_i_ports, "#port-o_i"),
+                (self.s_ports, "#port-s"),
+            ]:
+                for port in ports:
+                    x, y = self.port_positions[port.name]
+                    title = svg.Title(text=str(port.name))
+                    use = svg.Use(href=use_id, x=x, y=y, elements=[title])
+                    group.elements.append(use)
 
         return group
