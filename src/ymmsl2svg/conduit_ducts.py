@@ -138,9 +138,11 @@ class ConduitRoute:
     """Destination point in this timeline."""
     lanes: list[Lane]
     """Lanes visited (in order) between origin and destination"""
+    conduit: Conduit
+    """The conduit this route represents (used for the hover label)."""
 
-    def to_svg(self) -> svg.Path:
-        """Create an SVG Path to describe this conduit route."""
+    def to_svg(self) -> svg.G:
+        """Create an SVG group (visible line + wide hover target) for the route."""
         x, y = self.origin()
         path: list[svg.PathData] = [svg.M(x, y)]
         for lane in self.lanes:
@@ -160,7 +162,12 @@ class ConduitRoute:
         else:
             path.append(svg.V(y))
             path.append(svg.H(x))
-        return svg.Path(d=path, class_=["conduit"])
+        title = svg.Title(text=f"{self.conduit.sender} → {self.conduit.receiver}")
+        # A wide transparent "hit" path gives a much larger hover/tooltip target
+        # than the thin visible line; hovering the group highlights the line.
+        hit = svg.Path(d=path, class_=["conduit-hit"], elements=[title])
+        line = svg.Path(d=path, class_=["conduit"])
+        return svg.G(class_=["conduit-group"], elements=[hit, line])
 
 
 class TopConduitDuct(SvgBlock):
@@ -339,7 +346,7 @@ class TopConduitDuct(SvgBlock):
             elif destination[0] == "T":  # Route to a Top destination
                 continue  # TODO, interact coupling
 
-            route = ConduitRoute(origin, dest, lanes)
+            route = ConduitRoute(origin, dest, lanes, conduit)
             self._routes.append(route)
 
         # Route conduits coming from internal components and subtimelines
@@ -375,7 +382,7 @@ class TopConduitDuct(SvgBlock):
                     lanes.append(self._hlanes_for_s[conduit.sender])
                 dest = PortPoint(self.top_components[idest], conduit.receiving_port())
 
-            route = ConduitRoute(origin, dest, lanes)
+            route = ConduitRoute(origin, dest, lanes, conduit)
             self._routes.append(route)
 
     def calc_layout(self) -> None:
