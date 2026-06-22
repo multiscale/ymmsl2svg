@@ -1,3 +1,5 @@
+import hashlib
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -11,6 +13,61 @@ from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
     from ymmsl2svg.timeline_block import TimelineBlock
+
+# Trailing markers stripped (repeatedly) to fold a port name down to its signal
+# "basename": direction (_in/_out and the _i/_o/_s of NICE micro-models), the
+# fortran-filter _f, and the load-balancer stage suffixes (_scatter/_trace/_gather).
+# So equilibrium_out, equilibrium_out_f, equilibrium_scatter all fold to ``equilibrium``.
+_FOLD_SUFFIX = re.compile(r"_(in|out|i|o|s|f|scatter|trace|gather)$")
+# Matplotlib's "tab20" qualitative colormap, reordered so the 10 saturated tab10
+# colours come first and their 10 lighter companions follow -- so small signal sets
+# get the punchy tab10 colours and larger sets stay distinct up to 20.
+_PALETTE = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+]
+
+
+#: Model-wide basename -> colour map, assigned by index (distinct up to the palette
+#: size) so conduits and the legend agree. Populated per render by
+#: assign_basename_colors; basename_color falls back to a stable hash if unset.
+_basename_colors: dict[str, str] = {}
+
+
+def port_basename(port: object) -> str:
+    """Fold a port name down to its signal basename by repeatedly stripping trailing
+    direction/filter/stage markers (``equilibrium_scatter`` -> ``equilibrium``)."""
+    name = str(port)
+    while True:
+        folded = _FOLD_SUFFIX.sub("", name)
+        if not folded or folded == name:
+            return name
+        name = folded
+
+
+def assign_basename_colors(basenames: list[str]) -> None:
+    """Assign each basename a distinct colour (by order), for this render.
+
+    Up to the palette size the curated colours are used; beyond it (many signals)
+    colours are generated as evenly-spaced HSL hues, so they stay distinct for any
+    count. Call once before rendering; conduits and the legend then share the result."""
+    _basename_colors.clear()
+    n = len(basenames)
+    for i, name in enumerate(basenames):
+        if n <= len(_PALETTE):
+            _basename_colors[name] = _PALETTE[i]
+        else:
+            _basename_colors[name] = f"hsl({round(i * 360 / n)},58%,42%)"
+
+
+def basename_color(basename: str) -> str:
+    """Colour for a port basename: the assigned colour, or a stable hash fallback."""
+    if basename in _basename_colors:
+        return _basename_colors[basename]
+    digest = hashlib.md5(basename.encode()).hexdigest()
+    return _PALETTE[int(digest, 16) % len(_PALETTE)]
 
 
 @dataclass
@@ -138,9 +195,11 @@ class ConduitRoute:
     """Destination point in this timeline."""
     lanes: list[Lane]
     """Lanes visited (in order) between origin and destination"""
+    conduit: Conduit
+    """The conduit this route represents (used for the hover label)."""
 
-    def to_svg(self) -> svg.Path:
-        """Create an SVG Path to describe this conduit route."""
+    def _build_path(self) -> list[svg.PathData]:
+        """Orthogonal path from origin through the lanes to the destination."""
         x, y = self.origin()
         path: list[svg.PathData] = [svg.M(x, y)]
         for lane in self.lanes:
@@ -160,7 +219,28 @@ class ConduitRoute:
         else:
             path.append(svg.V(y))
             path.append(svg.H(x))
-        return svg.Path(d=path, class_=["conduit"])
+        return path
+
+    def to_svg(self) -> svg.G:
+        """Create an SVG group for the route: the visible line + a wide hover target.
+
+        The line is coloured by its port basename (unless conduit colouring is
+        disabled, in which case it is black). The transparent "hit" path is drawn last
+        (on top) and carries the <title>, so hovering the line itself shows the tooltip
+        and highlights the group.
+        """
+        path = self._build_path()
+        if settings.color_conduits:
+            color = basename_color(port_basename(self.conduit.sending_port()))
+            line = svg.Path(d=path, class_=["conduit"], style=f"--conduit-color:{color}")
+        else:
+            line = svg.Path(d=path, class_=["conduit"])
+        hit = svg.Path(
+            d=path,
+            class_=["conduit-hit"],
+            elements=[svg.Title(text=f"{self.conduit.sender} → {self.conduit.receiver}")],
+        )
+        return svg.G(class_=["conduit-group"], elements=[line, hit])
 
 
 class TopConduitDuct(SvgBlock):
@@ -339,7 +419,7 @@ class TopConduitDuct(SvgBlock):
             elif destination[0] == "T":  # Route to a Top destination
                 continue  # TODO, interact coupling
 
-            route = ConduitRoute(origin, dest, lanes)
+            route = ConduitRoute(origin, dest, lanes, conduit)
             self._routes.append(route)
 
         # Route conduits coming from internal components and subtimelines
@@ -375,7 +455,7 @@ class TopConduitDuct(SvgBlock):
                     lanes.append(self._hlanes_for_s[conduit.sender])
                 dest = PortPoint(self.top_components[idest], conduit.receiving_port())
 
-            route = ConduitRoute(origin, dest, lanes)
+            route = ConduitRoute(origin, dest, lanes, conduit)
             self._routes.append(route)
 
     def calc_layout(self) -> None:

@@ -211,6 +211,19 @@ class ComponentBlock(SvgBlock):
             # Move subtimeline
             timeline.moveto(self.component_x, self.y + self.height)
 
+    def display_name(self) -> str:
+        """Component name, suffixed with its size (e.g. ``worker[5]``) when it
+        has more than one instance (multiplicity / vector port). No space before
+        the bracket, matching libmuscle's ``name[index]`` instance naming."""
+        name = str(self.component.name)
+        mult = list(self.component.multiplicity or [])
+        size = 1
+        for dim in mult:
+            size *= dim
+        if size > 1:
+            name += "[" + ",".join(str(dim) for dim in mult) + "]"
+        return name
+
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
         # This is intended to slightly overestimate the width (which is prettier than
@@ -223,7 +236,7 @@ class ComponentBlock(SvgBlock):
         # Broad characters: (11+ pixels) -> estimate as 13 pixels wide
         # Medium characters: (8-10 pixels) -> estimate as 10 pixels wide
         lengths = {c: 5 for c in "ijlrIft.[]"} | {c: 13 for c in "BCPRUDGHNOQwmMW"}
-        return sum(lengths.get(c, 10) for c in str(self.component.name))
+        return sum(lengths.get(c, 10) for c in self.display_name())
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing this component and its ports."""
@@ -238,23 +251,24 @@ class ComponentBlock(SvgBlock):
             id=f"component-{self.component.name}",
         )
         text = svg.Text(
-            text=str(self.component.name),
+            text=self.display_name(),
             x=self.component_x + self.component_width / 2,
             y=self.y + self.component_height / 2,
         )
         group.elements.extend([component, text])
 
         # Draw ports
-        for ports, use_id in [
-            (self.f_init_ports, "#port-f_init"),
-            (self.o_f_ports, "#port-o_f"),
-            (self.o_i_ports, "#port-o_i"),
-            (self.s_ports, "#port-s"),
-        ]:
-            for port in ports:
-                x, y = self.port_positions[port.name]
-                title = svg.Title(text=str(port.name))
-                use = svg.Use(href=use_id, x=x, y=y, elements=[title])
-                group.elements.append(use)
+        if settings.draw_port_icons:
+            for ports, use_id in [
+                (self.f_init_ports, "#port-f_init"),
+                (self.o_f_ports, "#port-o_f"),
+                (self.o_i_ports, "#port-o_i"),
+                (self.s_ports, "#port-s"),
+            ]:
+                for port in ports:
+                    x, y = self.port_positions[port.name]
+                    title = svg.Title(text=str(port.name))
+                    use = svg.Use(href=use_id, x=x, y=y, elements=[title])
+                    group.elements.append(use)
 
         return group

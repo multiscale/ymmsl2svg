@@ -34,7 +34,8 @@ class ModelBlock(SvgBlock):
 
         # Determine timelines
         self.timeline_tree = TimelineTree(self.model)
-        self.timeline_tree.check_consistent()
+        if settings.check_timelines:
+            self.timeline_tree.check_consistent()
 
         # Create graph components
         self.timeline_block = TimelineBlock(self.timeline_tree, self.timeline_tree.root)
@@ -181,7 +182,6 @@ class ModelBlock(SvgBlock):
             height=self.height - 2 * pm - settings.model_border,
             class_=["model"],
             id=f"model-{self.model.name}",
-            elements=[svg.Title(text=f"Model: {self.model.name}")],
         )
         group.elements.append(model_block)
         # Draw ports
