@@ -1,11 +1,12 @@
 from collections.abc import Callable, Iterator
 
 import svg
-from ymmsl.v0_2 import Reference, TimelineNode, TimelineTree
+from ymmsl.v0_2 import Reference
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
+from ymmsl2svg.timeline_node import TimelineNode
 
 
 class TimelineBlock(SvgBlock):
@@ -15,10 +16,9 @@ class TimelineBlock(SvgBlock):
     yMMSL timeline. Subtimelines are instantiated and layed out recursively.
     """
 
-    def __init__(self, tree: TimelineTree, node: TimelineNode) -> None:
+    def __init__(self, node: TimelineNode) -> None:
         super().__init__()
 
-        self.tree = tree
         self.node = node
         if len(node.parent_components) > 1:
             raise NotImplementedError(
@@ -27,7 +27,7 @@ class TimelineBlock(SvgBlock):
 
         self.transform: svg.Transform = svg.Translate(0, 0)
 
-        self.top_conduit_duct = TopConduitDuct(self, node.name)
+        self.top_conduit_duct = TopConduitDuct(self, node.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
             ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
         ]
@@ -36,8 +36,8 @@ class TimelineBlock(SvgBlock):
         # Subtimelines
         self.subtimelines: list[TimelineBlock] = []
         subtl_per_component: dict[Reference, list[TimelineBlock]] = {}
-        for subnode in node.children:
-            subtimeline = TimelineBlock(tree, subnode)
+        for subnode in node.children.values():
+            subtimeline = TimelineBlock(subnode)
             self.subtimelines.append(subtimeline)
             for component in subnode.parent_components:
                 subtl_per_component.setdefault(component.name, []).append(subtimeline)

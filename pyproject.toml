@@ -16,8 +16,8 @@ license = "Apache-2.0"
 dependencies = [
     "click",
     "svg.py",
-    # "ymmsl >= 0.15",
-    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@feature/timelines",
+    # "ymmsl >= 0.18",
+    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@feature/resolve_timelines",
 ]
 dynamic = ["version"]
 requires-python = ">= 3.10"
