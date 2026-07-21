@@ -42,11 +42,7 @@ class TimelineBlock(SvgBlock):
             for component in subnode.parent_components:
                 subtl_per_component.setdefault(component.name, []).append(subtimeline)
 
-        # For now we take the order of components from the timeline, but we should
-        # revisit this:
-        # - Support interact coupling (components with shared timelines must be next to
-        #   each other)
-        # - Minimize conduit crossings
+        # Order of components is determined by TimelineNode
         for i, component in enumerate(node.components):
             subtimelines = subtl_per_component.get(component.name, [])
             cblock = ComponentBlock(

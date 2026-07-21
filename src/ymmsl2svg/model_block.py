@@ -8,7 +8,7 @@ from ymmsl.v0_2 import Conduit, Identifier, Model, Operator
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
-from ymmsl2svg.timeline_node import create_timeline_tree
+from ymmsl2svg.timeline_node import create_timeline_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ModelBlock(SvgBlock):
         }
 
         # Determine timelines
-        self.root_timeline_node = create_timeline_tree(self.model)
+        self.root_timeline_node = create_timeline_nodes(self.model)
 
         # Create graph components
         self.timeline_block = TimelineBlock(self.root_timeline_node)

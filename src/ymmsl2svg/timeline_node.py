@@ -10,8 +10,8 @@ from ymmsl.v0_2 import (
 )
 
 
-def create_timeline_tree(model: Model) -> "TimelineNode":
-    """Determine the timeline tree for a model."""
+def create_timeline_nodes(model: Model) -> "TimelineNode":
+    """Create all timeline nodes for a model and return the root node."""
     resolve_timelines(model)
     root = TimelineNode(Timeline(":"), None)
 
@@ -29,14 +29,14 @@ class TimelineNode:
         self.timeline = timeline
         """Timeline for this node."""
         self.parent = parent
-        """Parent node of this node."""
+        """Parent of this node, will be None for the root timeline."""
 
         self.children: dict[Reference, TimelineNode] = {}
-        """Child timeline nodes."""
+        """Child timeline nodes for direct subtimelines."""
         self.components: list[Component] = []
         """Components that are part of this timeline."""
         self.parent_components: list[Component] = []
-        """Parent components, i.e. those with O_I or S ports that send/recieve in
+        """Parent components, i.e. those with O_I or S ports that send/receive in
         this timeline."""
 
     def __getitem__(self, timeline: Timeline) -> "TimelineNode":
@@ -45,8 +45,8 @@ class TimelineNode:
         node = self
         for part in timeline:
             if part not in node.children:
-                subtl = node.timeline + Timeline(str(part))
-                node.children[part] = TimelineNode(subtl, node)
+                subtimeline = node.timeline + Timeline([part], absolute=False)
+                node.children[part] = TimelineNode(subtimeline, node)
             node = node.children[part]
         return node
 
