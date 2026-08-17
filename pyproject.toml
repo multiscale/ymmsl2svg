@@ -17,7 +17,7 @@ dependencies = [
     "click",
     "svg.py",
     # "ymmsl >= 0.18",
-    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@feature/resolve-timelines",
+    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@develop",
 ]
 dynamic = ["version"]
 requires-python = ">= 3.10"
