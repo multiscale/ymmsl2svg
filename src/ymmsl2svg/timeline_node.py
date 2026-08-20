@@ -73,7 +73,7 @@ class TimelineNode:
         group_deps: set[tuple[int, int]] = set()
         for sender, receiver in dependencies:
             # Check that we don't have dependencies between components in the same group
-            if group_per_component[sender] is group_per_component[receiver]:
+            if group_per_component[sender] == group_per_component[receiver]:
                 raise RuntimeError(
                     "Unsupported coupling graph: found an F_INIT connection between "
                     f"'{sender}' and '{receiver}', who also share a child timeline."
