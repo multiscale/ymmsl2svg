@@ -1,4 +1,5 @@
 import heapq
+import itertools
 
 from ymmsl.v0_2 import (
     Component,
@@ -69,9 +70,8 @@ class TimelineNode:
                 group_per_component[component] = i
 
         # Find dependencies between the groups
-        dependencies = self._finit_dependencies(model)
         group_deps: set[tuple[int, int]] = set()
-        for sender, receiver in dependencies:
+        for sender, receiver in self._finit_dependencies(model):
             # Check that we don't have dependencies between components in the same group
             if group_per_component[sender] == group_per_component[receiver]:
                 raise RuntimeError(
@@ -153,40 +153,43 @@ class TimelineNode:
             )
         return component_groups
 
-    def _finit_dependencies(self, model: Model) -> list[tuple[Component, Component]]:
+    def _ancestors_of(self, component: Component) -> list[Component]:
+        """Get ancestors of the component in our timeline."""
+        assert component.timeline is not None
+        if component.timeline == self.timeline:
+            return [component]
+        try:
+            subtl = component.timeline.relative_to(self.timeline)
+            return self.children[subtl[0]].parent_components
+        except ValueError:  # component is not in a subtimeline
+            return []
+
+    def _finit_dependencies(self, model: Model) -> set[tuple[Component, Component]]:
         """Determine dependencies resulting from conduits connected to F_INIT ports.
 
         Returns a list of component pairs, where the second component depends on a
         message of the first component.
         """
-        dependencies: list[tuple[Component, Component]] = []
+        dependencies: set[tuple[Component, Component]] = set()
         # Determine dependencies between component groups
         for conduit in model.conduits:
-            # Look for conduits connected to F_INIT ports on this timeline
+            # Look for conduits connected to F_INIT ports relevant for this timeline
             if not conduit.sending_component() or not conduit.receiving_component():
                 continue  # Ignore model ports
             receiver = model.components[conduit.receiving_component()]
-            if receiver not in self.components:
-                continue
             if receiver.ports[conduit.receiving_port()].operator is not Operator.F_INIT:
                 continue
             sender = model.components[conduit.sending_component()]
 
-            # Add dependency
-            if sender in self.components:
-                dependencies.append((sender, receiver))
-            else:
-                assert sender.timeline is not None
-                try:
-                    subtl = sender.timeline.relative_to(self.timeline)
-                except ValueError:
-                    # This exception means that sending_component.timeline is not a
-                    # subtimeline of us, therefore this conduit is not relevant for
-                    # determining the order in this timeline.
-                    continue
-                # Add a dependency for each ancestor component in our timeline:
-                for sending_ancestor in self[Timeline([subtl[0]])].parent_components:
-                    dependencies.append((sending_ancestor, receiver))
+            # Both sender and receiver must be in our timeline, or a subtimeline
+            sender_ancestors = self._ancestors_of(sender)
+            receiver_ancestors = self._ancestors_of(receiver)
+            if sender_ancestors == receiver_ancestors:
+                # Sender and receiver have the same ancestor components in our timeline,
+                # so we can ignore this conduit for sequencing this timeline
+                continue
+            for dependency in itertools.product(sender_ancestors, receiver_ancestors):
+                dependencies.add(dependency)
         return dependencies
 
     def _topological_sort(
