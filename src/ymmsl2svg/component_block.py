@@ -47,6 +47,7 @@ class ComponentBlock(SvgBlock):
         # Data
         self.component = component
         self.subtimelines = subtimelines
+        # TODO: support more than 2 subtimelines
         if len(subtimelines) > 2:
             raise NotImplementedError(
                 "Visualization of components with more than two subtimelines "
@@ -59,8 +60,7 @@ class ComponentBlock(SvgBlock):
         left_conduit_duct.add_right_connector(self)
         right_conduit_duct.add_left_connector(self)
         # Conduit connections to subtimelines. Each subtimeline gets its own slot in
-        # the same left/right ducts as this component, since (for up to two
-        # subtimelines) they are drawn side by side directly below it.
+        # the same left/right ducts as this component.
         for subtl in subtimelines:
             left_conduit_duct.add_right_connector(subtl.top_conduit_duct)
             right_conduit_duct.add_left_connector(subtl.top_conduit_duct)
@@ -82,17 +82,17 @@ class ComponentBlock(SvgBlock):
             port: [] for port in self.component.ports
         }
 
-    def _filter_by_timeline(
-        self, ports: list[Port], timeline: Timeline | None
-    ) -> list[Port]:
-        """Return only the ports (from `ports`) that are on the given (sub)timeline.
+    def _filter_by_timeline(self, ports: list[Port], timeline: Timeline) -> list[Port]:
+        """Return the ports that belong to the given (sub)timeline.
 
-        `timeline` is the absolute timeline (e.g. a TopConduitDuct's `.timeline`); ports
-        are matched against its last part, since that's the local name a port's own
-        (relative) `.timeline` is set to. If `timeline` is None, all ports are returned
-        unfiltered.
+        Args:
+            ports: Ports to filter.
+            timeline: Absolute timeline to filter on (only applicable to O_I and S
+                ports). Ports are matched against its last part, the local name a
+                port's own `.timeline` is set to. If empty, `ports` is returned
+                unfiltered.
         """
-        if timeline is None or len(timeline) == 0:
+        if len(timeline) == 0:
             return ports
         local_name = str(timeline[-1])
         return [port for port in ports if str(port.timeline) == local_name]
@@ -120,7 +120,9 @@ class ComponentBlock(SvgBlock):
             timeline: Timeline to filter on (only applicable to O_I and S ports).
             reversed: Reverse the order of the conduits.
         """
-        ports = self._filter_by_timeline(self._ports_per_operator[operator], timeline)
+        ports = self._ports_per_operator[operator]
+        if timeline is not None:
+            ports = self._filter_by_timeline(ports, timeline)
         if reverse:
             ports = reversed(ports)
         for port in ports:
@@ -139,7 +141,9 @@ class ComponentBlock(SvgBlock):
             timeline: Timeline to filter on (only applicable to O_I and S ports).
             reversed: Reverse the order of the ports.
         """
-        ports = self._filter_by_timeline(self._ports_per_operator[operator], timeline)
+        ports = self._ports_per_operator[operator]
+        if timeline is not None:
+            ports = self._filter_by_timeline(ports, timeline)
         if reverse:
             ports = reversed(ports)
         for port in ports:
