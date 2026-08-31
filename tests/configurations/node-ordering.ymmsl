@@ -1,0 +1,29 @@
+ymmsl_version: v0.2
+
+models:
+  more_filters:
+    components:
+      A:
+        description: Macro model
+        ports:
+          f_init: init
+      B:
+        description: Meso model
+        ports:
+          o_i: output
+          s: input
+      C:
+        description: Micro model
+        ports:
+          f_init: in1 in2
+          o_f: output
+      D:
+        description: Macro model
+        ports:
+          o_f: final
+    conduits:
+      B.output: C.in1
+      C.output: 
+      - B.input
+      - last A.init
+      D.final: repeat C.in2

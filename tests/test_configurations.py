@@ -11,6 +11,10 @@ configuration_files = list(test_ymmsl_folder.glob("*.ymmsl"))
 svg_output_folder = Path(__file__).parent.parent / "test_output"
 
 
+# Not supported yet, but needed in other tests:
+configuration_files.remove(test_ymmsl_folder / "timescale-bridge.ymmsl")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def clear_output_folder():
     for svgfile in svg_output_folder.glob("*.svg"):

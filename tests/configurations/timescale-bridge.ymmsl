@@ -1,0 +1,29 @@
+ymmsl_version: v0.2
+description: timescale bridge
+models:
+  interact:
+    components:
+      A:
+        description: A
+        ports:
+          o_i: output
+          s: input
+      B:
+        description: B
+        ports:
+          o_i: output
+          s: input
+      bridge:
+        description: timescale bridge
+        ports:
+          timeline A:
+            o_i: a_out
+            s: a_in
+          timeline B:
+            o_i: b_out
+            s: b_in
+    conduits:
+      A.output: bridge.a_in
+      bridge.a_out: A.input
+      B.output: bridge.b_in
+      bridge.b_out: B.input
