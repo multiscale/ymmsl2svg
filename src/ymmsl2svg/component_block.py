@@ -109,32 +109,32 @@ class ComponentBlock(SvgBlock):
         self,
         operator: Operator,
         timeline: Timeline | None = None,
-        reverse: bool = False,
+        reversed: bool = False,
     ) -> Iterator[Conduit]:
         """Iterate over all conduits connected to ports of an operator.
 
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reverse: Reverse the order of the conduits.
+            reversed: Reverse the order of the conduits.
         """
-        for port in self._ports_iter(operator, timeline, reverse):
+        for port in self._ports_iter(operator, timeline, reversed):
             yield from self.conduits_per_port.get(port.name, [])
 
     def ports_per_operator(
         self,
         operator: Operator,
         timeline: Timeline | None = None,
-        reverse: bool = False,
+        reversed: bool = False,
     ) -> Iterator[Reference]:
         """Iterate over full port references of all ports of an operator.
 
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reverse: Reverse the order of the ports.
+            reversed: Reverse the order of the ports.
         """
-        for port in self._ports_iter(operator, timeline, reverse):
+        for port in self._ports_iter(operator, timeline, reversed):
             yield self.component.name + port.name
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
