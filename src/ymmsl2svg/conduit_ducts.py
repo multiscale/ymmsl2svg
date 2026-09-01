@@ -360,9 +360,9 @@ class TopConduitDuct(SvgBlock):
             self._routes.append(route)
 
         # Route conduits coming from internal components and subtimelines
-        for iduct, extra_origin_lanes, origin, conduit in self._get_duct_conduits():
+        for iduct, extra_lanes, origin, conduit in self._get_duct_conduits():
             destination = self._destinations.get(conduit.receiving_component())
-            lanes = extra_origin_lanes
+            lanes = extra_lanes
             if destination is None:  # Route to the right_conduit_duct
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
@@ -380,8 +380,8 @@ class TopConduitDuct(SvgBlock):
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
                     lanes.append(self._hlanes[conduit.sender])
                     lanes.append(self.ducts[idest].vlanes_in[conduit.sender])
-                extra_dest_lanes, dest = self.ducts[idest].get_point_for(conduit)
-                lanes.extend(extra_dest_lanes)
+                extra_lanes, dest = self.ducts[idest].get_point_for(conduit)
+                lanes.extend(extra_lanes)
 
             else:  # Route to a Top destination
                 idest = destination[1]
@@ -478,7 +478,9 @@ class ConduitDuct(SvgBlock):
             vidx = connector.add_virtual_port(conduit, left=True)
             point = VirtualPortPointInDuct(connector, vidx, left=False)
             owner = connector.top_components[0]
-            lanes = owner.pass_lanes_to_duct(connector.tlblock, conduit.sender, True)
+            lanes = owner.pass_lanes_to_duct(
+                connector.tlblock, conduit.sender, duct_on_left=True
+            )
             return lanes, point
 
     def get_conduits(self) -> Iterator[tuple[list[Lane], Point, Conduit]]:
@@ -500,7 +502,7 @@ class ConduitDuct(SvgBlock):
                     origin = VirtualPortPointInDuct(left_connector, idx, left=True)
                     for conduit in conduits:
                         extra_lanes = owner.pass_lanes_to_duct(
-                            left_connector.tlblock, conduit.sender, False
+                            left_connector.tlblock, conduit.sender, duct_on_left=False
                         )
                         yield extra_lanes, origin, conduit
 

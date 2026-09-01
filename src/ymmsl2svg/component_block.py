@@ -178,14 +178,14 @@ class ComponentBlock(SvgBlock):
         return (self.port_positions[port][0] - self._port_segment_x[port], 0)
 
     def pass_lanes_to_duct(
-        self, tlblock: "TimelineBlock", sender: Reference, from_left: bool
+        self, tlblock: "TimelineBlock", sender: Reference, duct_on_left: bool
     ) -> list["Lane"]:
-        """Lanes for a conduit that has to pass over one or more sibling subtimelines
-        to travel between `tlblock` (one of self.subtimelines) and the ConduitDuct that
-        all of them share on their left (from_left=True) or right (from_left=False).
-        """
+        """Lanes needed to cross the sibling subtimelines between `tlblock` and the
+        ConduitDuct they all share, on its left (duct_on_left) or right."""
         idx = self.subtimelines.index(tlblock)
-        crossed = self.subtimelines[:idx] if from_left else self.subtimelines[idx + 1 :]
+        crossed = (
+            self.subtimelines[:idx] if duct_on_left else self.subtimelines[idx + 1 :]
+        )
         return [subtl.top_conduit_duct.register_pass_lane(sender) for subtl in crossed]
 
     def calc_layout(self) -> None:
@@ -215,21 +215,25 @@ class ComponentBlock(SvgBlock):
                 self.port_positions[port.name] = (self.x + x, self.y + y)
                 y += settings.port_margin
 
-        # Divide the component into one horizontal segment per subtimeline, each
-        # getting its own O_I/S ports and its own slice of the width below the
-        # component. Segments are packed left to right using each subtimeline's own
-        # (natural) width; any leftover width ends up after the last segment, so a
-        # single subtimeline still spans the full component width as before.
-        segment_bounds = [self.component_x]
-        for timeline in self.subtimelines[:-1]:
-            segment_bounds.append(segment_bounds[-1] + timeline.width)
-        segment_bounds.append(self.component_x + self.component_width)
+        segment_bounds = self._segment_bounds()
+        self._align_subtimelines()
+        for i, timeline in enumerate(self.subtimelines):
+            self._place_subtimeline(i, timeline, segment_bounds)
 
-        # Align the subtimelines' own components with each other: if one subtimeline
-        # needs more room above its components (e.g. for its own internal routing, or
-        # for a conduit passing over it) than its siblings, give all of them that same
-        # amount of room, so components at the same level line up regardless of which
-        # subtimeline they're in.
+    def _segment_bounds(self) -> list[float]:
+        """x-boundaries of each subtimeline's segment: segment i spans [bounds[i],
+        bounds[i + 1]), packed left to right by each subtimeline's own width. Leftover
+        width goes after the last segment."""
+        bounds = [self.component_x]
+        for timeline in self.subtimelines[:-1]:
+            bounds.append(bounds[-1] + timeline.width)
+        bounds.append(self.component_x + self.component_width)
+        return bounds
+
+    def _align_subtimelines(self) -> None:
+        """Give every sibling subtimeline the tallest top_conduit_duct height needed by
+        any one of them, so their components line up regardless of which subtimeline
+        they're in."""
         max_top_height = max(
             (subtl.top_conduit_duct.height for subtl in self.subtimelines), default=0
         )
@@ -237,33 +241,35 @@ class ComponentBlock(SvgBlock):
             if subtl.top_conduit_duct.height < max_top_height:
                 subtl.calc_layout(min_top_height=max_top_height)
 
-        for i, timeline in enumerate(self.subtimelines):
-            seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
-            oi_ports = list(
-                self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
-            )
-            s_ports = list(
-                self._ports_iter(Operator.S, timeline.node.timeline, reverse=False)
-            )
+    def _place_subtimeline(
+        self, i: int, timeline: "TimelineBlock", segment_bounds: list[float]
+    ) -> None:
+        """Position `timeline`'s O_I/S ports and move it into its segment."""
+        seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
+        oi_ports = list(
+            self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
+        )
+        s_ports = list(
+            self._ports_iter(Operator.S, timeline.node.timeline, reverse=False)
+        )
 
-            oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
-            x0 = seg_x + oi_offset
-            for j, port in enumerate(oi_ports):
-                x = x0 + (j + 0.5) * settings.port_margin
-                self.port_positions[port.name] = (x, self.y + self.height)
-                self._port_segment_x[port.name] = seg_x
+        oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
+        x0 = seg_x + oi_offset
+        for j, port in enumerate(oi_ports):
+            x = x0 + (j + 0.5) * settings.port_margin
+            self.port_positions[port.name] = (x, self.y + self.height)
+            self._port_segment_x[port.name] = seg_x
 
-            x0 = seg_right + s_offset
-            for j, port in enumerate(s_ports):
-                x = x0 + (j + 0.5) * settings.port_margin
-                self.port_positions[port.name] = (x, self.y + self.height)
-                self._port_segment_x[port.name] = seg_x
+        x0 = seg_right + s_offset
+        for j, port in enumerate(s_ports):
+            x = x0 + (j + 0.5) * settings.port_margin
+            self.port_positions[port.name] = (x, self.y + self.height)
+            self._port_segment_x[port.name] = seg_x
 
-            # Move subtimeline
-            timeline.moveto(seg_x, self.y + self.height)
-            # Now that it's placed, resolve any pass lanes registered on it (see
-            # TopConduitDuct.register_pass_lane) to absolute positions in our frame.
-            timeline.top_conduit_duct.finalize_pass_lanes(self.y + self.height)
+        # Move subtimeline
+        timeline.moveto(seg_x, self.y + self.height)
+        # Resolve its pass lanes to absolute position now that it's placed.
+        timeline.top_conduit_duct.finalize_pass_lanes(self.y + self.height)
 
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
