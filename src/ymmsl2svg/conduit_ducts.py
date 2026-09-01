@@ -101,14 +101,11 @@ class VirtualPortPoint(Point):
 
 
 class VirtualPortPointInDuct(Point):
-    """Point corresponding to a virtual port of a TopConduitDuct, but from a Duct
-    perspective."""
+    """Point corresponding to a virtual port of a TopConduitDuct, from the
+    perspective of the subtimeline's box.
+    """
 
-    def __init__(
-        self, duct: "ConduitDuct", tcd: "TopConduitDuct", index: int, left: bool
-    ) -> None:
-        self.duct = duct
-        """ConduitDuct that the virtual port belongs to."""
+    def __init__(self, tcd: "TopConduitDuct", index: int, left: bool) -> None:
         self.left = left
         """Whether this is a virtual port on the left or on the right of the duct."""
         self.vpp = VirtualPortPoint(tcd, index, not left)
@@ -117,15 +114,16 @@ class VirtualPortPointInDuct(Point):
         _, y = self.vpp()
         transform = self.vpp.tcd.tlblock.transform
         if isinstance(transform, svg.Translate):
-            offset = transform.y
-            assert isinstance(offset, (float, int))
-            y += offset
+            x_offset, y_offset = transform.x, transform.y
+            assert isinstance(x_offset, (float, int))
+            assert isinstance(y_offset, (float, int))
+        else:
+            x_offset = y_offset = 0
+        y += y_offset
 
-        # N.B. setings.port_size is subtracted/added to ensure the conduit extends
-        # through the gap reserved for O_F and F_INIT ports:
         if self.left:
-            return (self.duct.x - settings.port_size, y)
-        return (self.duct.x + self.duct.width + settings.port_size, y)
+            return (x_offset + self.vpp.tcd.tlblock.width, y)
+        return (x_offset, y)
 
 
 @dataclass
@@ -195,6 +193,9 @@ class TopConduitDuct(SvgBlock):
         """Horizontal lanes for conduits going to O_I ports."""
         self._hlanes = Lanes(horizontal=True)
         """Main horizontal lanes, for all conduits going left -> right."""
+        self._hlanes_for_pass = Lanes(horizontal=True)
+        """Horizontal lanes for conduits that pass over this subtimeline on their way 
+        to/from a sibling subtimeline."""
 
         self._routes: list[ConduitRoute] = []
         """List of conduit routes through this timeline."""
@@ -202,6 +203,19 @@ class TopConduitDuct(SvgBlock):
     def add_conduit_duct(self, conduit_duct: "ConduitDuct") -> None:
         """Register conduit duct."""
         self.ducts.append(conduit_duct)
+
+    def register_pass_lane(self, sender: Reference) -> Lane:
+        """Get the lane for a conduit that passes over this subtimeline on its way
+        to/from a sibling subtimeline.
+        """
+        return self._hlanes_for_pass[sender]
+
+    def finalize_pass_lanes(self, y_offset: float) -> None:
+        """Convert the subtimeline's pass lanes from local to absolute y, now that the
+        subtimeline has been placed at y_offset."""
+        for lane in self._hlanes_for_pass:
+            if lane.pos is not None:
+                lane.pos += y_offset
 
     def add_top_component(self, component: ComponentBlock) -> None:
         """Register parent component connecting to the top"""
@@ -279,16 +293,18 @@ class TopConduitDuct(SvgBlock):
             for conduit in conduits:
                 yield (-1, origin, conduit)
 
-    def _get_duct_conduits(self) -> Iterator[tuple[int, Point, Conduit]]:
+    def _get_duct_conduits(self) -> Iterator[tuple[int, list[Lane], Point, Conduit]]:
         """Iterator over all conduits connected to ConduitDucts.
 
         Yields:
-            (duct_index, origin_point, conduit) for each conduit, starting with
-            conduits connected to the right-most port.
+            (duct_index, extra_lanes, origin_point, conduit) for each conduit, starting
+            with conduits connected to the right-most port. extra_lanes contains any
+            lanes needed to route the conduit past subtimelines between its origin and
+            the duct.
         """
         for idx, duct in enumerate(self.ducts):
-            for origin, conduit in duct.get_conduits():
-                yield (idx, origin, conduit)
+            for extra_lanes, origin, conduit in duct.get_conduits():
+                yield (idx, extra_lanes, origin, conduit)
 
     def route_conduits(self) -> None:
         """Route all conduits inside this timeline and all subtimelines."""
@@ -334,7 +350,8 @@ class TopConduitDuct(SvgBlock):
                 if idest > 0:
                     lanes.append(self._hlanes[conduit.sender])
                     lanes.append(self.ducts[idest].vlanes_in[conduit.sender])
-                dest = self.ducts[idest].get_point_for(conduit)
+                extra_lanes, dest = self.ducts[idest].get_point_for(conduit)
+                lanes.extend(extra_lanes)
 
             elif destination[0] == "T":  # Route to a Top destination
                 continue  # TODO, interact coupling
@@ -343,9 +360,9 @@ class TopConduitDuct(SvgBlock):
             self._routes.append(route)
 
         # Route conduits coming from internal components and subtimelines
-        for iduct, origin, conduit in self._get_duct_conduits():
+        for iduct, extra_origin_lanes, origin, conduit in self._get_duct_conduits():
             destination = self._destinations.get(conduit.receiving_component())
-            lanes = []
+            lanes = extra_origin_lanes
             if destination is None:  # Route to the right_conduit_duct
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
@@ -363,7 +380,8 @@ class TopConduitDuct(SvgBlock):
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
                     lanes.append(self._hlanes[conduit.sender])
                     lanes.append(self.ducts[idest].vlanes_in[conduit.sender])
-                dest = self.ducts[idest].get_point_for(conduit)
+                extra_dest_lanes, dest = self.ducts[idest].get_point_for(conduit)
+                lanes.extend(extra_dest_lanes)
 
             else:  # Route to a Top destination
                 idest = destination[1]
@@ -381,7 +399,8 @@ class TopConduitDuct(SvgBlock):
     def calc_layout(self) -> None:
         """Calculate size and layout of this component"""
         offset = settings.conduit_margin / 2
-        height = self._hlanes_for_s.set_pos(offset, settings.conduit_margin)
+        height = self._hlanes_for_pass.set_pos(offset, settings.conduit_margin)
+        height += self._hlanes_for_s.set_pos(offset + height, settings.conduit_margin)
         height += self._hlanes_for_oi.set_pos(offset + height, settings.conduit_margin)
         height += self._hlanes.set_pos(offset + height, settings.conduit_margin)
         if height:
@@ -448,37 +467,42 @@ class ConduitDuct(SvgBlock):
             self._fill_destinations()
         return self._destinations.keys()
 
-    def get_point_for(self, conduit: Conduit) -> Point:
+    def get_point_for(self, conduit: Conduit) -> tuple[list[Lane], Point]:
         """Get a Point to describe the position of the destination of the conduit."""
         idx = self._destinations[conduit.receiving_component()]
         connector = self.right_connectors[idx]
         if isinstance(connector, ComponentBlock):
-            return PortPoint(connector, conduit.receiving_port())
+            return [], PortPoint(connector, conduit.receiving_port())
         else:
             # Create new virtual port, if needed, and add conduit to it:
-            idx = connector.add_virtual_port(conduit, left=True)
-            return VirtualPortPointInDuct(self, connector, idx, left=False)
+            vidx = connector.add_virtual_port(conduit, left=True)
+            point = VirtualPortPointInDuct(connector, vidx, left=False)
+            owner = connector.top_components[0]
+            lanes = owner.pass_lanes_to_duct(connector.tlblock, conduit.sender, True)
+            return lanes, point
 
-    def get_conduits(self) -> Iterator[tuple[Point, Conduit]]:
+    def get_conduits(self) -> Iterator[tuple[list[Lane], Point, Conduit]]:
         """Iterator over all conduits that enter this conduit duct from left_connectors.
 
         Yields:
-            (origin_point, conduit) for each conduit.
+            (extra_lanes, origin_point, conduit) for each conduit.
         """
         for left_connector in self.left_connectors:
             if isinstance(left_connector, ComponentBlock):
                 for conduit in left_connector.conduits_per_operator(Operator.O_F):
                     origin = PortPoint(left_connector, conduit.sending_port())
-                    yield origin, conduit
+                    yield [], origin, conduit
             else:
                 left_connector.route_conduits()
+                owner = left_connector.top_components[0]
                 # Loop over conduits coming in from the child timeline:
                 for idx, conduits in enumerate(left_connector.right_vports.values()):
-                    origin = VirtualPortPointInDuct(
-                        self, left_connector, idx, left=True
-                    )
+                    origin = VirtualPortPointInDuct(left_connector, idx, left=True)
                     for conduit in conduits:
-                        yield origin, conduit
+                        extra_lanes = owner.pass_lanes_to_duct(
+                            left_connector.tlblock, conduit.sender, False
+                        )
+                        yield extra_lanes, origin, conduit
 
     def calc_layout(self) -> None:
         """Calculate size and layout of this component"""

@@ -95,11 +95,20 @@ class TimelineBlock(SvgBlock):
     def route_conduits(self) -> None:
         self.top_conduit_duct.route_conduits()
 
-    def calc_layout(self):
-        """Calculate the size and layout of the timeline block and its contents."""
+    def calc_layout(self, min_top_height: float = 0):
+        """Calculate the size and layout of the timeline block and its contents.
+
+        Args:
+            min_top_height: Minimum height for this timeline's own top_conduit_duct.
+                Used to align this timeline's components with those of a sibling
+                subtimeline (of the same owning component) that needs more room for its
+                own routing, so components at the same level line up regardless of
+                which subtimeline they're in.
+        """
         for subtl in self.subtimelines:
             subtl.calc_layout()
         self.top_conduit_duct.calc_layout()
+        self.top_conduit_duct.height = max(self.top_conduit_duct.height, min_top_height)
 
         width = 0
         height = 0

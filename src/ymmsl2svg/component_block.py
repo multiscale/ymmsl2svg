@@ -16,7 +16,7 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
-    from ymmsl2svg.conduit_ducts import ConduitDuct
+    from ymmsl2svg.conduit_ducts import ConduitDuct, Lane
     from ymmsl2svg.timeline_block import TimelineBlock
 
 
@@ -177,6 +177,17 @@ class ComponentBlock(SvgBlock):
         # Relative to subtimeline:
         return (self.port_positions[port][0] - self._port_segment_x[port], 0)
 
+    def pass_lanes_to_duct(
+        self, tlblock: "TimelineBlock", sender: Reference, from_left: bool
+    ) -> list["Lane"]:
+        """Lanes for a conduit that has to pass over one or more sibling subtimelines
+        to travel between `tlblock` (one of self.subtimelines) and the ConduitDuct that
+        all of them share on their left (from_left=True) or right (from_left=False).
+        """
+        idx = self.subtimelines.index(tlblock)
+        crossed = self.subtimelines[:idx] if from_left else self.subtimelines[idx + 1 :]
+        return [subtl.top_conduit_duct.register_pass_lane(sender) for subtl in crossed]
+
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
         subtimeline_width = sum(subtl.width for subtl in self.subtimelines)
@@ -214,10 +225,26 @@ class ComponentBlock(SvgBlock):
             segment_bounds.append(segment_bounds[-1] + timeline.width)
         segment_bounds.append(self.component_x + self.component_width)
 
+        # Align the subtimelines' own components with each other: if one subtimeline
+        # needs more room above its components (e.g. for its own internal routing, or
+        # for a conduit passing over it) than its siblings, give all of them that same
+        # amount of room, so components at the same level line up regardless of which
+        # subtimeline they're in.
+        max_top_height = max(
+            (subtl.top_conduit_duct.height for subtl in self.subtimelines), default=0
+        )
+        for subtl in self.subtimelines:
+            if subtl.top_conduit_duct.height < max_top_height:
+                subtl.calc_layout(min_top_height=max_top_height)
+
         for i, timeline in enumerate(self.subtimelines):
             seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
-            oi_ports = self._filter_by_timeline(self.o_i_ports, timeline.node.timeline)
-            s_ports = self._filter_by_timeline(self.s_ports, timeline.node.timeline)
+            oi_ports = list(
+                self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
+            )
+            s_ports = list(
+                self._ports_iter(Operator.S, timeline.node.timeline, reverse=False)
+            )
 
             oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
             x0 = seg_x + oi_offset
@@ -234,6 +261,9 @@ class ComponentBlock(SvgBlock):
 
             # Move subtimeline
             timeline.moveto(seg_x, self.y + self.height)
+            # Now that it's placed, resolve any pass lanes registered on it (see
+            # TopConduitDuct.register_pass_lane) to absolute positions in our frame.
+            timeline.top_conduit_duct.finalize_pass_lanes(self.y + self.height)
 
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
