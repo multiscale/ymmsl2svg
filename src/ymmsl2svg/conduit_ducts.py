@@ -278,7 +278,7 @@ class TopConduitDuct(SvgBlock):
         for component in reversed(self.top_components):
             idx -= 1
             for conduit in component.conduits_per_operator(
-                Operator.O_I, self.timeline, reverse=True
+                Operator.O_I, self.timeline, reversed=True
             ):
                 origin = PortPoint(component, conduit.sending_port())
                 yield (idx, origin, conduit)
@@ -314,7 +314,7 @@ class TopConduitDuct(SvgBlock):
         if self.top_components:
             # Reserve space for all O_I ports in the first component
             for port in self.top_components[0].ports_per_operator(
-                Operator.O_I, self.timeline, reverse=True
+                Operator.O_I, self.timeline, reversed=True
             ):
                 self.ducts[0].vlanes_in[port]
             # Reserve space for all S ports in the last component
