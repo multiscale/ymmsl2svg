@@ -34,6 +34,7 @@ class ComponentBlock(SvgBlock):
         subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
+        timeline: Timeline,
     ) -> None:
         super().__init__()
         # Geometry
@@ -47,6 +48,8 @@ class ComponentBlock(SvgBlock):
         # Data
         self.component = component
         self.subtimelines = subtimelines
+        self.timeline = timeline
+        """Absolute timeline this component itself lives on"""
 
         # Conduit connections to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
@@ -76,10 +79,18 @@ class ComponentBlock(SvgBlock):
             port: [] for port in self.component.ports
         }
 
-    def _ports_iter(self, operator: Operator, timeline: Timeline, reverse: bool):
+    def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
+        """Iterate over the component's ports for the given operator.
+
+        timeline is the absolute timeline of a subtimeline. Ports are matched by making
+        their own (relative) .timeline absolute. If timeline is None or empty, all ports
+        are returned unfiltered.
+        """
         ports = self._ports_per_operator[operator]
-        if timeline is not None:
-            ports = [port for port in ports if port.timeline == timeline]
+        if timeline:
+            ports = [
+                port for port in ports if self.timeline + port.timeline == timeline
+            ]
         if reverse:
             ports = reversed(ports)
         yield from ports
