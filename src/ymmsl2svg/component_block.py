@@ -94,7 +94,7 @@ class ComponentBlock(SvgBlock):
             raise RuntimeError("Unreachable")
         self.conduits_per_port[portname].append(conduit)
 
-    def conduits_per_operators(
+    def conduits_per_operator(
         self,
         operator: Operator,
         timeline: Timeline | None = None,
