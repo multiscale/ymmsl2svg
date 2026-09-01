@@ -47,12 +47,6 @@ class ComponentBlock(SvgBlock):
         # Data
         self.component = component
         self.subtimelines = subtimelines
-        # TODO: support more than 2 subtimelines
-        if len(subtimelines) > 2:
-            raise NotImplementedError(
-                "Visualization of components with more than two subtimelines "
-                "is not yet implemented."
-            )
 
         # Conduit connections to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
@@ -82,20 +76,13 @@ class ComponentBlock(SvgBlock):
             port: [] for port in self.component.ports
         }
 
-    def _filter_by_timeline(self, ports: list[Port], timeline: Timeline) -> list[Port]:
-        """Return the ports that belong to the given (sub)timeline.
-
-        Args:
-            ports: Ports to filter.
-            timeline: Absolute timeline to filter on (only applicable to O_I and S
-                ports). Ports are matched against its last part, the local name a
-                port's own `.timeline` is set to. If empty, `ports` is returned
-                unfiltered.
-        """
-        if len(timeline) == 0:
-            return ports
-        local_name = str(timeline[-1])
-        return [port for port in ports if str(port.timeline) == local_name]
+    def _ports_iter(self, operator: Operator, timeline: Timeline, reverse: bool):
+        ports = self._ports_per_operator[operator]
+        if timeline is not None:
+            ports = [port for port in ports if port.timeline == timeline]
+        if reverse:
+            ports = reversed(ports)
+        yield from ports
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
@@ -107,7 +94,7 @@ class ComponentBlock(SvgBlock):
             raise RuntimeError("Unreachable")
         self.conduits_per_port[portname].append(conduit)
 
-    def conduits_per_operator(
+    def conduits_per_operators(
         self,
         operator: Operator,
         timeline: Timeline | None = None,
@@ -118,14 +105,9 @@ class ComponentBlock(SvgBlock):
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the conduits.
+            reverse: Reverse the order of the conduits.
         """
-        ports = self._ports_per_operator[operator]
-        if timeline is not None:
-            ports = self._filter_by_timeline(ports, timeline)
-        if reverse:
-            ports = reversed(ports)
-        for port in ports:
+        for port in self._ports_iter(operator, timeline, reverse):
             yield from self.conduits_per_port.get(port.name, [])
 
     def ports_per_operator(
@@ -139,14 +121,9 @@ class ComponentBlock(SvgBlock):
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the ports.
+            reverse: Reverse the order of the ports.
         """
-        ports = self._ports_per_operator[operator]
-        if timeline is not None:
-            ports = self._filter_by_timeline(ports, timeline)
-        if reverse:
-            ports = reversed(ports)
-        for port in ports:
+        for port in self._ports_iter(operator, timeline, reverse):
             yield self.component.name + port.name
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
