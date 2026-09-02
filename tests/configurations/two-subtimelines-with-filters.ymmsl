@@ -1,0 +1,52 @@
+ymmsl_version: v0.2
+description: multiple subtimelines
+models:
+  test:
+    components:
+      before:
+        description: before
+        ports:
+          o_f: out
+      A:
+        description: A
+        ports:
+          timeline tl1:
+            o_i: b_out
+            s: b_in
+          timeline tl2:
+            o_i: c_out
+            s: c_in
+      B1:
+        description: B
+        ports:
+          f_init: in in2
+          o_f: out1 out2
+      B2:
+        description: B
+        ports:
+          f_init: in in2
+          o_f: out1 out2
+      C:
+        description: C
+        ports:
+          f_init: in in2
+          o_f: out1 out2
+      end:
+        description: Root-level component receiving the last output of B1, B2 and C
+          on a single port
+        ports:
+          f_init: from_b1 from_b2 from_c
+    conduits:
+      A.b_out: B1.in
+      B1.out1: B2.in
+      B1.out2: last end.from_b1
+      B2.out1: A.b_in
+      B2.out2: last end.from_b2
+      before.out:
+      - repeat B1.in2
+      - repeat B2.in2
+      - repeat C.in2
+      A.c_out: C.in
+      C.out1: A.c_in
+      C.out2: last end.from_c
+
