@@ -15,8 +15,16 @@ _path_type = click.Path(exists=True, path_type=Path)
 @click.argument("ymmsl_files", nargs=-1, required=True, type=_path_type)
 @click.option("-o", "--output", type=click.File("w"), help="Output file name.")
 @click.option("-d", "--debug", default=False, help="Enable debug visualizations.")
+@click.option(
+    "--port-icons/--no-port-icons",
+    default=True,
+    help="Draw port icons. Use --no-port-icons to omit them and collapse the spacing "
+    "they reserve (ports attach directly to the component edge).",
+)
 @click.version_option()
-def main(ymmsl_files: list[Path], output: TextIO | None, debug: bool):
+def main(
+    ymmsl_files: list[Path], output: TextIO | None, debug: bool, port_icons: bool
+):
     """Generate an SVG visualization for the provided yMMSL.
 
     By default the generated SVG is printed to the console output. Use the -o/--output
@@ -34,6 +42,8 @@ def main(ymmsl_files: list[Path], output: TextIO | None, debug: bool):
         )
 
     settings.debug = debug
+    if not port_icons:
+        settings.disable_port_icons()
     svg = ymmsl2svg(ymmsl_files[0])
 
     if output is None:
