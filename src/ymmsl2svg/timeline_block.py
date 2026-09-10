@@ -6,6 +6,7 @@ from ymmsl.v0_2 import Reference
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
+from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_node import TimelineNode
 
 
@@ -95,6 +96,54 @@ class TimelineBlock(SvgBlock):
     def route_conduits(self) -> None:
         self.top_conduit_duct.route_conduits()
 
+    def _boundary_duct_padding(self) -> tuple[float, float, float]:
+        """Padding needed to keep a lone component's O_I/S port groups a consistent
+        distance from their own edges, at any nesting depth.
+
+        Only applies when this row holds exactly one component: only then do
+        ducts[0] and ducts[-1] flank the *same* component, so equalizing their
+        widths amounts to centering that component's box -- for multiple
+        components, ducts[0]/ducts[-1] flank different ones and nothing here
+        applies. ducts[0].width_before_vlanes_in() and ducts[-1].width are
+        exactly oi_offset and -s_offset (see TopConduitDuct.port_offsets), so
+        equalizing those -- not the ducts' raw widths -- leaves port_offsets
+        itself untouched and each port sitting exactly on its own lane.
+
+        Returns (leading_first, extra_first, extra_last): leading_first widens
+        ducts[0] *before* vlanes_in (trailing space there wouldn't move
+        vlanes_in, and so wouldn't move the O_I ports, at all); extra_first/
+        extra_last widen each duct's own trailing edge instead, for the
+        fallback below.
+        """
+        if len(self.components) != 1:
+            return 0.0, 0.0, 0.0
+        first_duct, last_duct = self.conduit_ducts[0], self.conduit_ducts[-1]
+        first_duct.calc_layout()
+        last_duct.calc_layout()
+        if not self.top_conduit_duct.vlanes_in_is_own():
+            # Some *other* sender also shares ducts[0].vlanes_in (see
+            # vlanes_in_is_own), so shifting where it starts would misalign
+            # that sender's own, separately-positioned entering conduit.
+            # Fall back to just centering this component's own box (pad
+            # whichever duct's raw width is smaller up to the other's),
+            # leaving oi_offset be.
+            extra_first = max(0.0, last_duct.width - first_duct.width)
+            extra_last = max(0.0, first_duct.width - last_duct.width)
+            return 0.0, extra_first, extra_last
+        # O_I's own index 0 (the one oi_offset aligns to vlanes_in[0]) is
+        # already its nearest port to the component's edge, since O_I lays out
+        # away from the left edge -- but S lays out *towards* the right edge,
+        # so its index 0 (the one s_offset aligns to vlanes_out[0]) ends up
+        # farthest from it, and the *last* index nearest instead (see
+        # own_s_port_count). Folding that many extra port_margins into the S
+        # side's own target closes that gap too, on top of equalizing the two
+        # ducts outright.
+        bias = self.top_conduit_duct.own_s_port_count() * settings.port_margin
+        target = max(first_duct.width_before_vlanes_in(), last_duct.width - bias)
+        leading_first = max(0.0, target - first_duct.width_before_vlanes_in())
+        extra_last = max(0.0, (target + bias) - last_duct.width)
+        return leading_first, 0.0, extra_last
+
     def calc_layout(self, min_top_height: float = 0):
         """Calculate the size and layout of the timeline block and its contents.
 
@@ -110,12 +159,20 @@ class TimelineBlock(SvgBlock):
         self.top_conduit_duct.calc_layout()
         self.top_conduit_duct.height = max(self.top_conduit_duct.height, min_top_height)
 
+        leading_first, extra_first, extra_last = self._boundary_duct_padding()
+
         width = 0
         height = 0
         for item in self._iter_cd_and_components():
             item.x = width
             item.y = self.top_conduit_duct.height
-            item.calc_layout()
+            if item is self.conduit_ducts[0]:
+                item.calc_layout(leading_pad=leading_first)
+                item.width += extra_first
+            else:
+                item.calc_layout()
+            if item is self.conduit_ducts[-1]:
+                item.width += extra_last
             width += item.width
             height = max(height, item.height)
 

@@ -206,15 +206,23 @@ class ComponentBlock(SvgBlock):
     def sibling_point_for(
         self, frame: "TimelineBlock", conduit: Conduit
     ) -> tuple[list["Lane"], "Point"] | None:
-        """If `conduit`'s destination lives in a sibling of `frame` (another one of
-        self.subtimelines), hand it one hop closer: return an empty lane list and a
+        """Hand `conduit` one hop closer to wherever it needs to go next, from `frame`
+        (one of self.subtimelines) towards a sibling: return an empty lane list and a
         Point (in `frame`'s own coordinate frame) for a virtual port on the immediate
-        neighbor of `frame` in that sibling's direction. That neighbor's own routing
-        picks it up from there (as a conduit arriving from its parent), continuing the
-        hand-off itself if the destination is further still -- so a multi-subtimeline
-        crossing is drawn as a chain of single hops, each sharing whatever lanes its own
-        subtimeline already uses for that sender. None if the destination isn't
-        reachable via any sibling.
+        neighbor of `frame` in that direction. That neighbor's own routing picks it up
+        from there (as a conduit arriving from its parent), continuing the hand-off
+        itself if it still isn't reachable there -- so a multi-subtimeline crossing is
+        drawn as a chain of single hops, each sharing whatever lanes its own
+        subtimeline already uses for that sender, rather than a lane bypassing the
+        siblings in between.
+
+        If the destination lives in a sibling, hop straight towards it. Otherwise
+        `conduit` is simply leaving this timeline (conduits always exit to the right,
+        see TopConduitDuct._route_to_sibling_or_parent): if `frame` isn't already the
+        rightmost sibling, still hop one step right so the conduit passes through that
+        sibling's own duct network on its way out, instead of skipping over it. None
+        only once `frame` is the rightmost sibling -- there's nowhere closer left to
+        hop to, so it must genuinely exit to our own parent duct.
         """
         from ymmsl2svg.conduit_ducts import SiblingVirtualPortPoint
 
@@ -226,10 +234,14 @@ class ComponentBlock(SvgBlock):
             ):
                 target_idx = i
                 break
-        if target_idx is None:
+
+        if target_idx is not None:
+            next_idx = frame_idx + 1 if target_idx > frame_idx else frame_idx - 1
+        elif frame_idx < len(self.subtimelines) - 1:
+            next_idx = frame_idx + 1
+        else:
             return None
 
-        next_idx = frame_idx + 1 if target_idx > frame_idx else frame_idx - 1
         enter_from_left = next_idx > frame_idx
         tcd = self.subtimelines[next_idx].top_conduit_duct
         vidx = tcd.add_virtual_port(conduit, left=enter_from_left)
@@ -263,10 +275,10 @@ class ComponentBlock(SvgBlock):
         # subtimelines to reach another (see pass_lanes_to_duct), directly above all
         # of our subtimelines.
         if len(self._pass_lanes):
-            lane_offset = entry_y + settings.conduit_margin / 2
-            spacing = settings.conduit_margin
+            lane_offset = entry_y + settings.hlane_margin / 2
+            spacing = settings.hlane_margin
             self.height += self._pass_lanes.set_pos(lane_offset, spacing)
-            self.height += settings.conduit_margin
+            self.height += settings.hlane_margin
 
         # Calculate (x, y) positions for each port
         for ports, x in [(self.f_init_ports, 0), (self.o_f_ports, self.width)]:

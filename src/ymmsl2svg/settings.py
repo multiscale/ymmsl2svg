@@ -29,6 +29,20 @@ class Settings:
     ports will be ordered as they are defined in the yMMSL file."""
 
     conduit_margin: float = 4  # Must be <= port_margin!
+    """Spacing between vertical conduit lanes (see ConduitDuct.calc_layout)."""
+    hlane_margin: float = 4  # Must be <= port_margin, and > conduit_width!
+    """Spacing between horizontal conduit lanes/cruise heights (see
+    TopConduitDuct.calc_layout/safe_cruise_height). Two unrelated conduits can
+    legitimately end up on adjacent lanes (e.g. two different senders each
+    broadcasting past the same middle component to a shared destination further
+    along, as in dispatch3.ymmsl's "first" -> "third" conduits) and run parallel
+    for a while, so this has to stay enough bigger than conduit_width for the
+    gap between their strokes to actually read as two separate lines instead of
+    one thick one -- conduit_width + 2 here, not just conduit_width itself."""
+    vport_margin: float = 5  # Must be <= port_margin!
+    """Spacing between a TopConduitDuct's own virtual (conduit-hop) ports on its
+    left/right edge (see VirtualPortPoint) -- separate from port_margin (real
+    component ports) so this horizontal-lane spacing can be tightened on its own."""
     conduit_width: float = 2
 
 

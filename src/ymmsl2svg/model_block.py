@@ -51,11 +51,21 @@ class ModelBlock(SvgBlock):
         self.timeline_block.route_conduits()
         self.calc_layout()
 
-        # Get indices of our O_F ports so we can draw them in to_svg()
+        # Get indices of our O_F ports so we can draw them in to_svg(). Routing
+        # (just above) already registered each of these conduits' own exit
+        # under key=conduit.receiver -- this model's own port name, the same
+        # for every conduit converging on it (see route_conduits/
+        # _route_to_sibling_or_parent) -- so looking it up the same way here
+        # finds that same, real, already-drawn entry, rather than defaulting
+        # to key=conduit.sender (add_virtual_port's default) and creating a
+        # second, distinct, never-drawn one under the sender's own name
+        # instead, whose index this would otherwise end up tracking.
         tcd = self.timeline_block.top_conduit_duct
         for port in self.o_f_ports:
             for conduit in self.conduits_per_port[port.name]:
-                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
+                self.port_indices[port.name] = tcd.add_virtual_port(
+                    conduit, left=False, key=conduit.receiver
+                )
         # We currently don't support drawing model S or O_I ports:
         if self.s_ports or self.o_i_ports:
             logger.warning(
@@ -198,15 +208,25 @@ class ModelBlock(SvgBlock):
         for portname, idx in self.port_indices.items():
             port = self.model.ports[portname]
             title = svg.Title(text=str(port.name))
+            # y must land exactly on this port's own VirtualPortPoint (see
+            # TimelineBlock.route_conduits/conduit_ducts.py): the root
+            # TopConduitDuct's own left/right virtual ports are spaced by
+            # settings.vport_margin, not port_margin (see VirtualPortPoint.
+            # __call__ -- the right side's own extra +0.5 offset there keeps
+            # entering and exiting model ports from lining up too closely, so
+            # it's mirrored here) -- pm is still what the timeline_block itself
+            # is offset by (see calc_layout's moveto), which is a separate,
+            # unrelated margin.
+            vm = settings.vport_margin
             if port.operator == Operator.F_INIT:
                 useid = "#port-f_init"
                 x = pm - settings.port_size
-                y = (2.5 + idx) * pm
+                y = 2 * pm + (idx + 0.5) * vm
                 path: list[svg.PathData] = [svg.M(pm, y), svg.h(pm)]
             elif port.operator == Operator.O_F:
                 useid = "#port-o_f"
                 x = self.width - pm + settings.port_size
-                y = (2.5 + idx) * pm
+                y = 2 * pm + (idx + 1) * vm
                 path: list[svg.PathData] = [svg.M(self.width - pm, y), svg.h(-pm)]
             use = svg.Use(href=useid, x=x, y=y, elements=[title])
             group.elements.append(use)
