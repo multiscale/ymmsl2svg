@@ -7,19 +7,24 @@ from ymmsl.v0_2 import (
     Operator,
     Reference,
     Timeline,
-    resolve_timelines,
+    check_timelines,
 )
+from ymmsl.v0_2.timeline_resolver import TimelineChecker
 
 
 def create_timeline_nodes(model: Model) -> "TimelineNode":
     """Create all timeline nodes for a model and return the root node."""
-    resolve_timelines(model)
+    if model.matching_timelines:
+        raise NotImplementedError(
+            "Visualization of matching timelines is not yet implemented."
+        )
+    checker = check_timelines(model)
     root = TimelineNode(Timeline(":"), None)
 
     for component in model.components.values():
-        assert component.timeline is not None
-        node = root[component.timeline]
-        node.add_component(component)
+        component.timeline = checker.component_timeline(component.name)
+        node = root[component.timeline.parent]
+        node.add_component(component, checker)
 
     root.calculate_component_order(model)
     return root
@@ -42,21 +47,20 @@ class TimelineNode:
 
     def __getitem__(self, timeline: Timeline) -> "TimelineNode":
         """Get a sub-timeline of this one, creating a new one if required."""
-        assert not timeline.absolute or self.parent is None
         node = self
         for part in timeline:
             if part not in node.children:
-                subtimeline = node.timeline + Timeline([part], absolute=False)
-                node.children[part] = TimelineNode(subtimeline, node)
+                node.children[part] = TimelineNode(node.timeline + part, node)
             node = node.children[part]
         return node
 
-    def add_component(self, component: Component) -> None:
+    def add_component(self, component: Component, checker: TimelineChecker) -> None:
         """Register a component with this timeline node"""
         self.components.append(component)
         for port in component.ports.values():
-            if port.timeline:  # Only take O_I and S ports with a (sub)timeline
-                node = self[port.timeline]
+            if port.operator in (Operator.O_I, Operator.S):
+                timeline = checker.timeline_for_port(component.name + port.name)
+                node = self[timeline.relative_to(self.timeline)]
                 if component not in node.parent_components:
                     node.parent_components.append(component)
 
@@ -156,10 +160,10 @@ class TimelineNode:
     def _ancestors_of(self, component: Component) -> list[Component]:
         """Get ancestors of the component in our timeline."""
         assert component.timeline is not None
-        if component.timeline == self.timeline:
+        if component.timeline.parent == self.timeline:
             return [component]
         try:
-            subtl = component.timeline.relative_to(self.timeline)
+            subtl = component.timeline.parent.relative_to(self.timeline)
             return self.children[subtl[0]].parent_components
         except ValueError:  # component is not in a subtimeline
             return []
