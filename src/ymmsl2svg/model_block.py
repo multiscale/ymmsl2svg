@@ -52,14 +52,8 @@ class ModelBlock(SvgBlock):
         self.calc_layout()
 
         # Get indices of our O_F ports so we can draw them in to_svg(). Routing
-        # (just above) already registered each of these conduits' own exit
-        # under key=conduit.receiver -- this model's own port name, the same
-        # for every conduit converging on it (see route_conduits/
-        # _route_to_sibling_or_parent) -- so looking it up the same way here
-        # finds that same, real, already-drawn entry, rather than defaulting
-        # to key=conduit.sender (add_virtual_port's default) and creating a
-        # second, distinct, never-drawn one under the sender's own name
-        # instead, whose index this would otherwise end up tracking.
+        # groups these by receiver (see TopConduitDuct._route_to_sibling_or_parent),
+        # so use the same key here.
         tcd = self.timeline_block.top_conduit_duct
         for port in self.o_f_ports:
             for conduit in self.conduits_per_port[port.name]:
