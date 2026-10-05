@@ -34,7 +34,7 @@ class ComponentBlock(SvgBlock):
         subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
-        timeline: Timeline,
+        port_timelines: dict[Reference, Timeline],
     ) -> None:
         super().__init__()
         # Geometry
@@ -48,8 +48,9 @@ class ComponentBlock(SvgBlock):
         # Data
         self.component = component
         self.subtimelines = subtimelines
-        self.timeline = timeline
-        """Absolute timeline this component itself lives on"""
+        self.port_timelines = port_timelines
+        """Timeline (relative to the model) of each O_I and S port, by full port
+        reference (see TimelineNode.port_timelines)."""
 
         # Conduit connections to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
@@ -93,25 +94,22 @@ class ComponentBlock(SvgBlock):
     def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
         """Iterate over the component's ports for the given operator.
 
-        timeline is the absolute timeline of a subtimeline. Ports are matched by making
-        their own (relative) .timeline absolute. If timeline is None or empty, all ports
-        are returned unfiltered.
+        timeline is the timeline of a subtimeline, relative to the model (only
+        applicable to O_I and S ports). Ports are matched on their own timeline as
+        determined by ymmsl (see port_timelines). If timeline is None or empty, all
+        ports are returned unfiltered.
         """
         ports = self._ports_per_operator[operator]
         if timeline:
-            ports = [port for port in ports if self._port_timeline(port) == timeline]
+            name = self.component.name
+            ports = [
+                port
+                for port in ports
+                if self.port_timelines.get(name + port.name) == timeline
+            ]
         if reverse:
             ports = reversed(ports)
         yield from ports
-
-    def _port_timeline(self, port: Port) -> Timeline:
-        """Absolute timeline of a port, following ymmsl's timeline_for_port: a port
-        without annotation is on <parent_tl>:<component>, one annotated with "subtl" is
-        on <parent_tl>:<component>.subtl."""
-        name = self.component.name
-        if port.timeline:
-            return self.timeline + Timeline([f"{name}.{tl}" for tl in port.timeline])
-        return self.timeline + Timeline([name])
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""

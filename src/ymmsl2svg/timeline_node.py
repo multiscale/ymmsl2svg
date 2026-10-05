@@ -19,7 +19,7 @@ def create_timeline_nodes(model: Model) -> "TimelineNode":
             "Visualization of matching timelines is not yet implemented."
         )
     checker = check_timelines(model)
-    root = TimelineNode(Timeline(":"), None)
+    root = TimelineNode(Timeline([]), None)
 
     for component in model.components.values():
         component.timeline = checker.component_timeline(component.name)
@@ -33,7 +33,7 @@ def create_timeline_nodes(model: Model) -> "TimelineNode":
 class TimelineNode:
     def __init__(self, timeline: Timeline, parent: "TimelineNode | None") -> None:
         self.timeline = timeline
-        """Timeline for this node."""
+        """Timeline for this node, relative to the model."""
         self.parent = parent
         """Parent of this node, will be None for the root timeline."""
 
@@ -44,6 +44,9 @@ class TimelineNode:
         self.parent_components: list[Component] = []
         """Parent components, i.e. those with O_I or S ports that send/receive in
         this timeline."""
+        self.port_timelines: dict[Reference, Timeline] = {}
+        """Timeline (relative to the model) of each O_I and S port of our components,
+        by full port reference, as determined by ymmsl's TimelineChecker."""
 
     def __getitem__(self, timeline: Timeline) -> "TimelineNode":
         """Get a sub-timeline of this one, creating a new one if required."""
@@ -60,6 +63,7 @@ class TimelineNode:
         for port in component.ports.values():
             if port.operator in (Operator.O_I, Operator.S):
                 timeline = checker.timeline_for_port(component.name + port.name)
+                self.port_timelines[component.name + port.name] = timeline
                 node = self[timeline.relative_to(self.timeline)]
                 if component not in node.parent_components:
                     node.parent_components.append(component)

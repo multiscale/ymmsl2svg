@@ -53,7 +53,7 @@ class TimelineBlock(SvgBlock):
                 subtimelines,
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
-                self.node.timeline,
+                self.node.port_timelines,
             )
             self.components.append(cblock)
 
