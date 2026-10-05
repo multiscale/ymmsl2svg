@@ -99,12 +99,19 @@ class ComponentBlock(SvgBlock):
         """
         ports = self._ports_per_operator[operator]
         if timeline:
-            ports = [
-                port for port in ports if self.timeline + port.timeline == timeline
-            ]
+            ports = [port for port in ports if self._port_timeline(port) == timeline]
         if reverse:
             ports = reversed(ports)
         yield from ports
+
+    def _port_timeline(self, port: Port) -> Timeline:
+        """Absolute timeline of a port, following ymmsl's timeline_for_port: a port
+        without annotation is on <parent_tl>:<component>, one annotated with "subtl" is
+        on <parent_tl>:<component>.subtl."""
+        name = self.component.name
+        if port.timeline:
+            return self.timeline + Timeline([f"{name}.{tl}" for tl in port.timeline])
+        return self.timeline + Timeline([name])
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
