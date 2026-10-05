@@ -49,17 +49,17 @@ class CruiseLane:
 class Lanes:
     """Bundle of horizontal/vertical lanes, indexed by Conduit.sender."""
 
-    def __init__(self, horizontal: bool, reversed: bool = False) -> None:
+    def __init__(self, horizontal: bool, reverse: bool = False) -> None:
         """Create a new bundle of lanes
 
         Args:
             horizontal: Direction of conduits in this lane: True if horizontal, False if
                 vertical.
-            reversed: By default lanes are drawn top -> bottom (or left -> right) in the
+            reverse: By default lanes are drawn top -> bottom (or left -> right) in the
                 order they were added. Setting this to True will reverse the order.
         """
         self._horizontal = horizontal
-        self._reversed = reversed
+        self._reverse = reverse
         self._lanes: dict[Reference, Lane] = {}
 
     def set_pos(self, offset: float, spacing: float) -> float:
@@ -70,7 +70,7 @@ class Lanes:
 
     def __iter__(self) -> Iterator[Lane]:
         """Get an iterator over the Lanes in this bundle."""
-        if self._reversed:
+        if self._reverse:
             return reversed(self._lanes.values())
         return iter(self._lanes.values())
 
@@ -564,7 +564,7 @@ class TopConduitDuct(SvgBlock):
         for component in reversed(self.top_components):
             idx -= 1
             for conduit in component.conduits_per_operator(
-                Operator.O_I, self.timeline, reversed=True
+                Operator.O_I, self.timeline, reverse=True
             ):
                 origin = PortPoint(component, conduit.sending_port())
                 port_conduits = component.conduits_per_port[conduit.sending_port()]
@@ -613,7 +613,7 @@ class TopConduitDuct(SvgBlock):
         if self.top_components:
             # Reserve space for all O_I ports in the first component
             for port in self.top_components[0].ports_per_operator(
-                Operator.O_I, self.timeline, reversed=True
+                Operator.O_I, self.timeline, reverse=True
             ):
                 self.ducts[0].vlanes_in[port]
             # Reserve space for all S ports in the last component
@@ -805,7 +805,7 @@ class ConduitDuct(SvgBlock):
         """Vertical lanes, carrying conduits from left to top."""
         self.vlanes_transfer = Lanes(horizontal=False)
         """Vertical lanes, carrying conduits from left to right."""
-        self.vlanes_in = Lanes(horizontal=False, reversed=True)
+        self.vlanes_in = Lanes(horizontal=False, reverse=True)
         """Vertical lanes, carrying conduits from top to right."""
         self._leading_pad: float = 0.0
         """Extra space before vlanes_in (see calc_layout)."""

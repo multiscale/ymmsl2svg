@@ -86,10 +86,11 @@ class ComponentBlock(SvgBlock):
     def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
         """Iterate over the component's ports for the given operator.
 
-        timeline is the timeline of a subtimeline, relative to the model (only
-        applicable to O_I and S ports). Ports are matched on their own timeline as
-        determined by ymmsl (see port_timelines). If timeline is None or empty, all
-        ports are returned unfiltered.
+        Args:
+            operator: Operator to filter on.
+            timeline: Only return the ports that send or receive in this timeline.
+                If None or empty, all ports are returned.
+            reverse: Reverse the order of the ports.
         """
         ports = self._ports_per_operator[operator]
         if timeline:
@@ -117,32 +118,32 @@ class ComponentBlock(SvgBlock):
         self,
         operator: Operator,
         timeline: Timeline | None = None,
-        reversed: bool = False,
+        reverse: bool = False,
     ) -> Iterator[Conduit]:
         """Iterate over all conduits connected to ports of an operator.
 
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the conduits.
+            reverse: Reverse the order of the conduits.
         """
-        for port in self._ports_iter(operator, timeline, reversed):
+        for port in self._ports_iter(operator, timeline, reverse):
             yield from self.conduits_per_port.get(port.name, [])
 
     def ports_per_operator(
         self,
         operator: Operator,
         timeline: Timeline | None = None,
-        reversed: bool = False,
+        reverse: bool = False,
     ) -> Iterator[Reference]:
         """Iterate over full port references of all ports of an operator.
 
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the ports.
+            reverse: Reverse the order of the ports.
         """
-        for port in self._ports_iter(operator, timeline, reversed):
+        for port in self._ports_iter(operator, timeline, reverse):
             yield self.component.name + port.name
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
