@@ -54,6 +54,11 @@ class CruiseLane:
     else needs to agree with."""
     clamp_to_dest: bool = False
     """Clamp the resolved height to the route's own destination y (see above)."""
+    crosses: bool = True
+    """Whether the horizontal travel after this cruise can pass over one of the row's
+    components. If not (and its shared bus doesn't cross either, see
+    TopConduitDuct.cruise_needed), the cruise is skipped entirely and reserves no
+    height in the row."""
 
 
 class Lanes:
@@ -223,6 +228,9 @@ def _apply_lanes(
     for lane_or_cond in lanes:
         if isinstance(lane_or_cond, CruiseLane):
             duct = lane_or_cond.duct
+            if not duct.cruise_needed(lane_or_cond):
+                # Nothing of this row to clear: the route stays inside one duct.
+                continue
             # Skip this cruise if we're already at a y that's safe for the row's
             # *entire* width -- i.e. `y` here, not the final destination's: a
             # skipped cruise leaves the route traveling at whatever y it already
@@ -239,23 +247,28 @@ def _apply_lanes(
             # O_I ports already sits (see TopConduitDuct.route_conduits), so
             # travelling there is never actually clear of them, just clear of
             # the *components* lower down that this check is about.
-            if 0 < y <= duct.height:
-                duct._cruise_heights_used.append(y)
-                continue
-            # See TopConduitDuct.safe_cruise_height for what this avoids running
-            # through (or too close to): both the row's own components and any
-            # other conduit already cruising through this row. A shared bus
-            # (shared_lane set) resolves once and caches the answer, so every
-            # branch that reuses it agrees on the exact same y regardless of
-            # when each one gets resolved.
+            #
+            # A shared bus (shared_lane set) resolves once and caches the answer,
+            # skipped or not, so every branch that reuses it agrees on the exact same
+            # y regardless of when each one gets resolved. calc_layout relies on this
+            # by reserving a single height per bus.
             key = id(lane_or_cond.shared_lane) if lane_or_cond.shared_lane else None
             if key is not None and key in duct._hlane_resolved:
                 new_y = duct._hlane_resolved[key]
+            elif 0 < y <= duct.height:
+                if key is not None:
+                    duct._hlane_resolved[key] = y
+                duct._cruise_heights_used.append(y)
+                continue
             else:
-                new_y = duct.safe_cruise_height()
+                # See TopConduitDuct.safe_cruise_height for what this avoids running
+                # through (or too close to): both the row's own components and any
+                # other conduit already cruising through this row.
                 if lane_or_cond.clamp_to_dest:
                     assert dest_y is not None
-                    new_y = min(dest_y, new_y)
+                    new_y = duct.safe_cruise_height(below=dest_y)
+                else:
+                    new_y = duct.safe_cruise_height()
                 if key is not None:
                     duct._hlane_resolved[key] = new_y
                 duct._cruise_heights_used.append(new_y)
@@ -419,6 +432,30 @@ class TopConduitDuct(SvgBlock):
         it, and reused after that so a shared sender's trunk (see _join_trunk),
         whose lane multiple routes reference, settles on the exact same height
         everywhere it's used."""
+        self._crossing_buses: set[int] = set()
+        """id() of the `shared_lane` of every shared bus with at least one branch that
+        passes over one of this row's components (see cruise_needed)."""
+
+    def _cruise(
+        self,
+        shared_lane: Lane | None = None,
+        clamp_to_dest: bool = False,
+        crosses: bool = True,
+    ) -> CruiseLane:
+        """Create a CruiseLane in this row, registering its shared bus as crossing if
+        this branch crosses."""
+        if crosses and shared_lane is not None:
+            self._crossing_buses.add(id(shared_lane))
+        return CruiseLane(self, shared_lane, clamp_to_dest, crosses)
+
+    def cruise_needed(self, lane: CruiseLane) -> bool:
+        """Whether `lane` can pass over one of this row's components, either itself
+        or through another branch of its shared bus."""
+        if lane.crosses:
+            return True
+        return lane.shared_lane is not None and id(lane.shared_lane) in (
+            self._crossing_buses
+        )
 
     def add_conduit_duct(self, conduit_duct: "ConduitDuct") -> None:
         """Register conduit duct."""
@@ -541,26 +578,36 @@ class TopConduitDuct(SvgBlock):
             list(self.top_components[-1].ports_per_operator(Operator.S, self.timeline))
         )
 
-    def safe_cruise_height(self) -> float:
-        """The largest y a CruiseLane may cruise at in this row: clear of the
-        row's own components (see calc_layout), and clear of every other cruise
-        already actually drawn here too (with at least settings.hlane_margin
-        either way).
+    def safe_cruise_height(self, below: float | None = None) -> float:
+        """A y a CruiseLane may cruise at in this row: clear of the row's own
+        components (see calc_layout), and clear of every other cruise already
+        actually drawn here too (with at least settings.hlane_margin either way).
 
         _cruise_heights_used holds the y's that earlier CruiseLanes in this row
         actually settled on (see _apply_lanes, which records one whether it
         skipped -- already safe at its own current y -- or genuinely cruised) --
-        every one of those is real, so all of them are checked here, pushing
-        higher as many times as needed until clear of each. calc_layout reserves
-        enough extra height (one hlane_margin per route that has a CruiseLane)
-        for this to always still land at or above 0.
+        every one of those is real, so all of them are checked here.
+
+        Without `below`, this is the topmost clear y: the band fills top-down, so
+        the first cruise drawn (from the leftmost lanes, going furthest right) is
+        highest and later ones pass underneath it without crossing its vertical
+        lanes. With `below` (see CruiseLane.clamp_to_dest), this is the lowest clear
+        y at or above `below`, so the route stays as close as possible to its
+        destination's y. calc_layout reserves enough height (one hlane_margin per
+        cruise, plus one) for either to stay within 0..height.
         """
-        candidate = self.height - settings.hlane_margin
-        for used in sorted(
-            (h for h in self._cruise_heights_used if h <= candidate), reverse=True
-        ):
-            if candidate - used < settings.hlane_margin:
-                candidate = used - settings.hlane_margin
+        margin = settings.hlane_margin
+        bottom = self.height - margin
+        if below is None:
+            candidate = margin
+            for used in sorted(self._cruise_heights_used):
+                if abs(candidate - used) < margin:
+                    candidate = used + margin
+            return min(candidate, bottom)
+        candidate = min(below, bottom)
+        for used in sorted(self._cruise_heights_used, reverse=True):
+            if abs(candidate - used) < margin:
+                candidate = used - margin
         return candidate
 
     def _join_trunk(self, sender: Reference, origin: Point) -> Point:
@@ -587,8 +634,9 @@ class TopConduitDuct(SvgBlock):
         """
         trunk_point = self._trunk_points.get(sender)
         if trunk_point is None:
+            # Whether the trunk is needed depends on its branches (see cruise_needed)
             trunk_lanes: list[AnyLane] = [
-                CruiseLane(self, shared_lane=self._hlanes[sender])
+                self._cruise(shared_lane=self._hlanes[sender], crosses=False)
             ]
             trunk_point = LanePoint(origin, trunk_lanes)
             self._trunk_points[sender] = trunk_point
@@ -618,7 +666,10 @@ class TopConduitDuct(SvgBlock):
         return self.top_components[0].sibling_point_for(self.tlblock, conduit)
 
     def _route_to_sibling_or_parent(
-        self, conduit: Conduit, preferred_y: float | None = None
+        self,
+        conduit: Conduit,
+        preferred_y: float | None = None,
+        lane_key: Reference | None = None,
     ) -> tuple[list[Lane], Point]:
         """Resolve a conduit with no destination in this timeline: hand it to a
         sibling subtimeline one hop closer (see ComponentBlock.sibling_point_for), or
@@ -634,15 +685,28 @@ class TopConduitDuct(SvgBlock):
             height. Unused for a sibling hop, which always has its own fixed
             landing point on the sibling's side (see ComponentBlock.
             sibling_point_for) that this timeline's own y has no say in.
+        lane_key: key of the exit lane in ducts[-1], instead of conduit.receiver --
+            see _shares_sending_port.
         """
         sibling = self._sibling_point_for(conduit)
         if sibling is not None:
             return sibling
-        lanes = [self.ducts[-1].vlanes_out[conduit.receiver]]
+        lanes = [self.ducts[-1].vlanes_out[lane_key or conduit.receiver]]
         idx = self.add_virtual_port(
             conduit, left=False, key=conduit.receiver, y=preferred_y
         )
         return lanes, VirtualPortPoint(self, idx, left=False)
+
+    def _shares_sending_port(self, conduit: Conduit) -> bool:
+        """Whether `conduit` comes straight from one of this row's components, from a
+        port that also sends other conduits. Such a conduit exits on its sender's lane
+        (shared with those other conduits, e.g. one going up to an S port of the top
+        component) instead of on a lane grouped by receiver."""
+        for component in self.tlblock.components:
+            if component.component.name == conduit.sending_component():
+                port_conduits = component.conduits_per_port[conduit.sending_port()]
+                return len(port_conduits) > 1
+        return False
 
     def _get_input_conduits(self) -> Iterator[tuple[int, Point, Conduit, bool]]:
         """Iterator over all input conduits.
@@ -671,8 +735,12 @@ class TopConduitDuct(SvgBlock):
                 yield (idx, origin, conduit, len(port_conduits) > 1)
         # Conduits coming from the parent timeline
         if self.left_conduit_duct is None:
-            # Reserve vlanes of model ports in reverse order
-            for name in reversed(self.left_vports):
+            # Reserve vlanes of model ports so that the top-most port gets the
+            # right-most lane (vlanes_in is numbered in reverse). These ports are
+            # spaced closer (vport_margin) than the F_INIT ports below them that they
+            # go down to, so the other way around every conduit would cross the
+            # vertical lane of the one above it.
+            for name in self.left_vports:
                 self.ducts[0].vlanes_in[name]
         # Then assign conduits in regular order
         for idx, conduits in enumerate(self.left_vports.values()):
@@ -809,6 +877,8 @@ class TopConduitDuct(SvgBlock):
                     # ConduitRoute.to_svg) that ends up needing to actually reach
                     # this hop's own fixed landing point.
                     route_origin = self._join_trunk(conduit.sender, route_origin)
+                    # The hop travels at the trunk's height, across the whole row
+                    self._crossing_buses.add(id(self._hlanes[conduit.sender]))
                 else:
                     # A plain shared-bus CruiseLane wouldn't do here: a sibling
                     # subtimeline's own entry point (or a genuine exit's own
@@ -820,7 +890,7 @@ class TopConduitDuct(SvgBlock):
                     # instead (clamped to only as much altitude as actually
                     # needed) so the route travels in a single straight line
                     # wherever that's safe.
-                    lanes.append(CruiseLane(self, clamp_to_dest=True))
+                    lanes.append(self._cruise(clamp_to_dest=True))
                     if isinstance(origin, VirtualPortPoint):
                         # This conduit is itself just passing through (it arrived
                         # here as a hop from a previous sibling, see
@@ -850,8 +920,13 @@ class TopConduitDuct(SvgBlock):
                 # broadcast's further destinations get the same collision-aware
                 # cruise-height check a lone conduit already gets, instead of just
                 # trusting the trunk's already-fixed y all the way to their own,
-                # possibly much further, entry point.
-                lanes.append(CruiseLane(self, shared_lane=self._hlanes[conduit.sender]))
+                # possibly much further, entry point. Only a destination past
+                # ducts[0] actually passes over one of this row's components.
+                lanes.append(
+                    self._cruise(
+                        shared_lane=self._hlanes[conduit.sender], crosses=idest > 0
+                    )
+                )
                 if idest > 0:
                     extend_lane = self.ducts[idest].vlanes_in[conduit.sender]
                     lanes.append(extend_lane)
@@ -890,8 +965,11 @@ class TopConduitDuct(SvgBlock):
                     # See the matching branch in the loop above: align with the
                     # route's own landing y (clamped to what's actually safe)
                     # instead of an unrelated cruise altitude.
-                    lanes.append(CruiseLane(self, clamp_to_dest=True))
-                hop_lanes, dest = self._route_to_sibling_or_parent(conduit)
+                    lanes.append(self._cruise(clamp_to_dest=True))
+                lane_key = key if self._shares_sending_port(conduit) else None
+                hop_lanes, dest = self._route_to_sibling_or_parent(
+                    conduit, lane_key=lane_key
+                )
                 lanes.extend(hop_lanes)
 
             elif destination[0] == "B":  # Route to a Bottom destination
@@ -907,7 +985,7 @@ class TopConduitDuct(SvgBlock):
                     # resolves to a height consistent with every other cruise in
                     # this row (see _apply_lanes) instead of an unrelated,
                     # independently-numbered one.
-                    lanes.append(CruiseLane(self, shared_lane=self._hlanes[key]))
+                    lanes.append(self._cruise(shared_lane=self._hlanes[key]))
                     lanes.append(self.ducts[idest].vlanes_in[key])
                 self._finish_bottom_route(origin, idest, lanes, conduit)
                 continue
@@ -917,7 +995,7 @@ class TopConduitDuct(SvgBlock):
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[key])
                     # See the "B" branch above.
-                    lanes.append(CruiseLane(self, shared_lane=self._hlanes[key]))
+                    lanes.append(self._cruise(shared_lane=self._hlanes[key]))
                 lanes.append(self.ducts[-1].vlanes_out[key])
                 if idest != len(self.top_components) - 1:
                     lanes.append(self._hlanes_for_s[key])
@@ -959,12 +1037,18 @@ class TopConduitDuct(SvgBlock):
         # pinned back-to-back just hlane_margin apart starting from the very
         # top, leaving the last one needing a full extra hlane_margin below
         # the lowest of those to still land at or above 0 itself.
-        cruising_lanes = sum(
-            1
+        #
+        # Cruises that can't pass over any of this row's components (see
+        # cruise_needed) are never drawn, so they don't count. All cruises of one
+        # shared bus resolve to a single y (see _apply_lanes), so a bus counts once.
+        needed = [
+            lane
             for route in self._routes
             for lane in route.lanes
-            if isinstance(lane, CruiseLane)
-        )
+            if isinstance(lane, CruiseLane) and self.cruise_needed(lane)
+        ]
+        buses = {id(lane.shared_lane) for lane in needed if lane.shared_lane}
+        cruising_lanes = len(buses) + sum(1 for lane in needed if not lane.shared_lane)
         if cruising_lanes:
             height += (cruising_lanes + 1) * settings.hlane_margin
         # Also reserve enough height for every left/right virtual port (see
@@ -979,7 +1063,8 @@ class TopConduitDuct(SvgBlock):
         # nothing to cross wouldn't also need. Sizing this row to clear the
         # farthest port on either side keeps every such crossing route to the one
         # bend it actually needs, same as one that had nothing to cross at all.
-        if self.left_vports or self.right_vports:
+        # Without any crossing route there's nothing for this to help.
+        if cruising_lanes and (self.left_vports or self.right_vports):
             port_extent = max(
                 (len(self.left_vports) - 0.5) * settings.vport_margin
                 if self.left_vports

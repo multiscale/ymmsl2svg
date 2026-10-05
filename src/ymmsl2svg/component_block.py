@@ -295,7 +295,6 @@ class ComponentBlock(SvgBlock):
                 y += settings.port_margin
 
         segment_bounds = self._segment_bounds()
-        self._align_subtimelines()
         self._subtimeline_y = self.y + self.height
         for i, timeline in enumerate(self.subtimelines):
             self._place_subtimeline(i, timeline, segment_bounds, entry_y)
@@ -309,17 +308,6 @@ class ComponentBlock(SvgBlock):
             bounds.append(bounds[-1] + timeline.width)
         bounds.append(self.component_x + self.component_width)
         return bounds
-
-    def _align_subtimelines(self) -> None:
-        """Give every sibling subtimeline the tallest top_conduit_duct height needed by
-        any one of them, so their components line up regardless of which subtimeline
-        they're in."""
-        max_top_height = max(
-            (subtl.top_conduit_duct.height for subtl in self.subtimelines), default=0
-        )
-        for subtl in self.subtimelines:
-            if subtl.top_conduit_duct.height < max_top_height:
-                subtl.calc_layout(min_top_height=max_top_height)
 
     def _place_subtimeline(
         self,

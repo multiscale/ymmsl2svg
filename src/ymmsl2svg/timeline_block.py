@@ -27,6 +27,8 @@ class TimelineBlock(SvgBlock):
             )
 
         self.transform: svg.Transform = svg.Translate(0, 0)
+        self.min_top_height: float = 0
+        """Minimum height of our top_conduit_duct, set by align_nesting_levels."""
 
         self.top_conduit_duct = TopConduitDuct(self, node.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
@@ -144,20 +146,40 @@ class TimelineBlock(SvgBlock):
         extra_last = max(0.0, (target + bias) - last_duct.width)
         return leading_first, 0.0, extra_last
 
-    def calc_layout(self, min_top_height: float = 0):
-        """Calculate the size and layout of the timeline block and its contents.
+    def align_nesting_levels(self) -> None:
+        """Line up the components of all subtimelines at the same nesting depth.
 
-        Args:
-            min_top_height: Minimum height for this timeline's own top_conduit_duct.
-                Used to align this timeline's components with those of a sibling
-                subtimeline (of the same owning component) that needs more room for its
-                own routing, so components at the same level line up regardless of
-                which subtimeline they're in.
+        A subtimeline's components sit owner.height + top_conduit_duct.height below
+        the components of the row holding its owner. Per depth, pad each subtimeline's
+        top_conduit_duct (via min_top_height) so that this distance is the same
+        everywhere: this aligns e.g. the subtimelines of two different components in
+        the same row, not just sibling subtimelines of one component.
+
+        Must be called after calc_layout, which must then be called again to apply it.
         """
+        rows: list[TimelineBlock] = [self]
+        while True:
+            pairs = [
+                (component, subtl)
+                for row in rows
+                for component in row.components
+                for subtl in component.subtimelines
+            ]
+            if not pairs:
+                break
+            offset = max(c.height + s.top_conduit_duct.height for c, s in pairs)
+            for component, subtl in pairs:
+                subtl.min_top_height = offset - component.height
+            rows = [subtl for _, subtl in pairs]
+
+    def calc_layout(self):
+        """Calculate the size and layout of the timeline block and its contents."""
         for subtl in self.subtimelines:
             subtl.calc_layout()
         self.top_conduit_duct.calc_layout()
-        self.top_conduit_duct.height = max(self.top_conduit_duct.height, min_top_height)
+        self.top_conduit_duct.height = max(
+            self.top_conduit_duct.height, self.min_top_height
+        )
 
         leading_first, extra_first, extra_last = self._boundary_duct_padding()
 

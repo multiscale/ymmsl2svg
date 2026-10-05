@@ -186,6 +186,9 @@ class ModelBlock(SvgBlock):
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
         self.timeline_block.calc_layout()
+        # Second pass, to line up components at the same nesting depth
+        self.timeline_block.align_nesting_levels()
+        self.timeline_block.calc_layout()
         self.width = self.timeline_block.width + 4 * settings.port_margin
         self.height = self.timeline_block.height + 4 * settings.port_margin
         self.timeline_block.moveto(2 * settings.port_margin, 2 * settings.port_margin)
