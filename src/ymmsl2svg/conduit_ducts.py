@@ -41,17 +41,15 @@ class CruiseLane:
       small final correction otherwise.
     - A shared per-sender bus (e.g. a "repeat" broadcast, see
       TopConduitDuct._join_trunk): every branch needs to agree on the exact same
-      y, so `shared_lane` (identifying the bus by its underlying, otherwise-unused
-      Lane) caches the first resolution and hands it to every later branch instead
-      of letting each one compute its own answer against a `_cruise_heights_used`
-      that may have moved on by the time it gets there.
+      y, so the first resolution of `bus` is cached and handed to every later
+      branch (see TopConduitDuct.resolve_cruise).
     """
 
     duct: "TopConduitDuct"
-    shared_lane: Lane | None = None
-    """Set for a shared bus (see above): every CruiseLane wrapping the same Lane
-    resolves to one cached height. None for a plain per-route cruise that nothing
-    else needs to agree with."""
+    bus: Reference | None = None
+    """Key (usually the sender) of the shared bus this lane belongs to: all
+    CruiseLanes of one bus resolve to the same y. None for a plain per-route cruise
+    that nothing else needs to agree with."""
     clamp_to_dest: bool = False
     """Clamp the resolved height to the route's own destination y (see above)."""
     crosses: bool = True
@@ -135,24 +133,21 @@ class VirtualPortPoint(Point):
         """Whether this is a virtual port on the left or on the right side."""
 
     def __call__(self) -> tuple[float, float]:
-        override = self.tcd._vport_y.get((self.left, self.index))
-        if override is not None:
-            y = override
-        else:
-            # left and right ports are numbered independently (0, 1, 2, ... on
-            # each side), so without the extra +0.5 below, the first port
-            # entering on the left and the first port exiting on the right would
-            # land on the exact same y -- looking, across the component in
-            # between that hides the gap, like one conduit passing straight
-            # through the other's box, rather than the two unrelated conduits
-            # they actually are. Offsetting the right side by half a vport_margin
-            # makes the two sides' y's interleave instead, however many ports
-            # either one has, without needing to know the other side's count.
-            index = self.index if self.left else self.index + 0.5
-            y = (index + 0.5) * settings.vport_margin
+        y = self.tcd.vport_y(self.left, self.index)
         if self.left:
             return (0, y)
         return (self.tcd.width, y)
+
+
+def _translation(tlblock: "TimelineBlock") -> tuple[float, float]:
+    """Get the (x, y) offset of a TimelineBlock (see TimelineBlock.moveto)."""
+    transform = tlblock.transform
+    if not isinstance(transform, svg.Translate):
+        return 0, 0
+    x, y = transform.x, transform.y
+    assert isinstance(x, (float, int))
+    assert isinstance(y, (float, int))
+    return x, y
 
 
 class VirtualPortPointInDuct(Point):
@@ -167,25 +162,18 @@ class VirtualPortPointInDuct(Point):
 
     def __call__(self) -> tuple[float, float]:
         _, y = self.vpp()
-        transform = self.vpp.tcd.tlblock.transform
-        if isinstance(transform, svg.Translate):
-            x_offset, y_offset = transform.x, transform.y
-            assert isinstance(x_offset, (float, int))
-            assert isinstance(y_offset, (float, int))
-        else:
-            x_offset = y_offset = 0
-        y += y_offset
-
+        tlblock = self.vpp.tcd.tlblock
+        x_offset, y_offset = _translation(tlblock)
         if self.left:
-            return (x_offset + self.vpp.tcd.tlblock.width, y)
-        return (x_offset, y)
+            return (x_offset + tlblock.width, y + y_offset)
+        return (x_offset, y + y_offset)
 
 
 class SiblingVirtualPortPoint(Point):
     """Point for a virtual port on a sibling subtimeline (of the same owning
     component), expressed relative to `frame`'s own coordinate frame -- for a route
     drawn as part of `frame`'s own rendering that needs to reach into a sibling
-    instead (see ComponentBlock.sibling_point_for).
+    instead (see TopConduitDuct._sibling_point_for).
     """
 
     def __init__(
@@ -196,11 +184,7 @@ class SiblingVirtualPortPoint(Point):
 
     def __call__(self) -> tuple[float, float]:
         x, y = self.point()
-        transform = self.frame.transform
-        assert isinstance(transform, svg.Translate)
-        fx, fy = transform.x, transform.y
-        assert isinstance(fx, (float, int))
-        assert isinstance(fy, (float, int))
+        fx, fy = _translation(self.frame)
         return (x - fx, y - fy)
 
 
@@ -225,60 +209,14 @@ def _apply_lanes(
     """
     path: list[svg.PathData] = []
     last_horizontal = False
-    for lane_or_cond in lanes:
-        if isinstance(lane_or_cond, CruiseLane):
-            duct = lane_or_cond.duct
-            if not duct.cruise_needed(lane_or_cond):
-                # Nothing of this row to clear: the route stays inside one duct.
-                continue
-            # Skip this cruise if we're already at a y that's safe for the row's
-            # *entire* width -- i.e. `y` here, not the final destination's: a
-            # skipped cruise leaves the route traveling at whatever y it already
-            # has (nothing after this sets y again until the final bend into the
-            # destination's own reserved x, which is always safe), so it's that
-            # current y -- not where the route eventually ends up -- that has to
-            # be safe for the width still ahead of it. Recorded as used either
-            # way, so a cruise that *does* bend below never lands right on top of
-            # one that skipped and is already cruising at its own, unrelated y.
-            #
-            # y == 0 never qualifies for this skip, even though it's always <=
-            # duct.height: it's not just *a* safe height, it's the row's own top
-            # edge -- exactly where every one of this row's own top components'
-            # O_I ports already sits (see TopConduitDuct.route_conduits), so
-            # travelling there is never actually clear of them, just clear of
-            # the *components* lower down that this check is about.
-            #
-            # A shared bus (shared_lane set) resolves once and caches the answer,
-            # skipped or not, so every branch that reuses it agrees on the exact same
-            # y regardless of when each one gets resolved. calc_layout relies on this
-            # by reserving a single height per bus.
-            key = id(lane_or_cond.shared_lane) if lane_or_cond.shared_lane else None
-            if key is not None and key in duct._hlane_resolved:
-                new_y = duct._hlane_resolved[key]
-            elif 0 < y <= duct.height:
-                if key is not None:
-                    duct._hlane_resolved[key] = y
-                duct._cruise_heights_used.append(y)
-                continue
-            else:
-                # See TopConduitDuct.safe_cruise_height for what this avoids running
-                # through (or too close to): both the row's own components and any
-                # other conduit already cruising through this row.
-                if lane_or_cond.clamp_to_dest:
-                    assert dest_y is not None
-                    new_y = duct.safe_cruise_height(below=dest_y)
-                else:
-                    new_y = duct.safe_cruise_height()
-                if key is not None:
-                    duct._hlane_resolved[key] = new_y
-                duct._cruise_heights_used.append(new_y)
-            if new_y == y:
-                continue
-            last_horizontal = True
-            y = new_y
-            path.append(svg.V(y))
+    for lane in lanes:
+        if isinstance(lane, CruiseLane):
+            new_y = lane.duct.resolve_cruise(lane, y, dest_y)
+            if new_y != y:
+                last_horizontal = True
+                y = new_y
+                path.append(svg.V(y))
             continue
-        lane = lane_or_cond
         last_horizontal = lane.horizontal
         if lane.horizontal:
             assert lane.pos is not None
@@ -341,7 +279,7 @@ class ConduitRoute:
         dest_x, dest_y = self.destination()
         # With no lanes at all (origin and destination already line up through a
         # sibling hop with nothing local left to traverse, see
-        # ComponentBlock.sibling_point_for), go straight from origin to destination --
+        # _sibling_point_for), go straight from origin to destination --
         # default to vertical-then-horizontal (down, then across), as if coming off a
         # vertical lane, rather than requiring at least one real lane just to know
         # which way to bend.
@@ -397,8 +335,6 @@ class TopConduitDuct(SvgBlock):
         """Horizontal lanes for conduits going to S ports."""
         self._hlanes_for_oi = Lanes(horizontal=True)
         """Horizontal lanes for conduits going to O_I ports."""
-        self._hlanes = Lanes(horizontal=True)
-        """Main horizontal lanes, for all conduits going left -> right."""
 
         self._routes: list[ConduitRoute] = []
         """List of conduit routes through this timeline."""
@@ -418,44 +354,70 @@ class TopConduitDuct(SvgBlock):
         already found itself safely at) while rendering this row (see
         safe_cruise_height/_apply_lanes) -- so an *unrelated* later conduit's own
         cruise, computed independently, doesn't happen to land on the exact same
-        y an earlier one already settled on (both avoiding, say, the same
-        _hlanes lane and so both landing on the one spot just clear of it) and
-        collide with it in turn."""
+        y an earlier one already settled on and collide with it in turn."""
         self._vport_y: dict[tuple[bool, int], float] = {}
         """Explicit y overrides for specific (left, index) virtual ports (see
-        add_virtual_port's `y` and VirtualPortPoint.__call__) -- a virtual port
-        without an entry here just uses the regular index-based formula."""
-        self._hlane_resolved: dict[int, float] = {}
-        """Per shared-bus CruiseLane (keyed by id() of its own `shared_lane`, see
-        _apply_lanes) cache of the y it actually resolved to via
-        safe_cruise_height() -- computed once, the first time any route reaches
-        it, and reused after that so a shared sender's trunk (see _join_trunk),
-        whose lane multiple routes reference, settles on the exact same height
-        everywhere it's used."""
-        self._crossing_buses: set[int] = set()
-        """id() of the `shared_lane` of every shared bus with at least one branch that
-        passes over one of this row's components (see cruise_needed)."""
+        add_virtual_port's `y` and vport_y) -- a virtual port without an entry here
+        just uses the regular index-based formula."""
+        self._bus_heights: dict[Reference, float] = {}
+        """y that each shared bus (see CruiseLane.bus) resolved to, the first time any
+        of its routes reached it, so every branch of the bus uses the same height."""
+        self._crossing_buses: set[Reference] = set()
+        """Every shared bus with at least one branch that passes over one of this
+        row's components (see cruise_needed)."""
 
     def _cruise(
         self,
-        shared_lane: Lane | None = None,
+        bus: Reference | None = None,
         clamp_to_dest: bool = False,
         crosses: bool = True,
     ) -> CruiseLane:
         """Create a CruiseLane in this row, registering its shared bus as crossing if
         this branch crosses."""
-        if crosses and shared_lane is not None:
-            self._crossing_buses.add(id(shared_lane))
-        return CruiseLane(self, shared_lane, clamp_to_dest, crosses)
+        if crosses and bus is not None:
+            self._crossing_buses.add(bus)
+        return CruiseLane(self, bus, clamp_to_dest, crosses)
 
     def cruise_needed(self, lane: CruiseLane) -> bool:
         """Whether `lane` can pass over one of this row's components, either itself
         or through another branch of its shared bus."""
-        if lane.crosses:
-            return True
-        return lane.shared_lane is not None and id(lane.shared_lane) in (
-            self._crossing_buses
-        )
+        return lane.crosses or lane.bus in self._crossing_buses
+
+    def resolve_cruise(self, lane: CruiseLane, y: float, dest_y: float | None) -> float:
+        """Get the y that a route currently at `y` cruises at for `lane`.
+
+        Returns `y` itself if no cruise is needed: either nothing in this row has to
+        be cleared, or `y` is already a safe height. y == 0 is never safe, as that
+        is where the O_I ports of this row's top components sit. Otherwise the
+        result is a safe_cruise_height. Every resolved height is recorded so later
+        cruises keep clear of it, and a shared bus resolves only once.
+        """
+        if not self.cruise_needed(lane):
+            return y
+        if lane.bus is not None and lane.bus in self._bus_heights:
+            return self._bus_heights[lane.bus]
+        if 0 < y <= self.height:
+            new_y = y
+        elif lane.clamp_to_dest:
+            assert dest_y is not None
+            new_y = self.safe_cruise_height(below=dest_y)
+        else:
+            new_y = self.safe_cruise_height()
+        if lane.bus is not None:
+            self._bus_heights[lane.bus] = new_y
+        self._cruise_heights_used.append(new_y)
+        return new_y
+
+    def vport_y(self, left: bool, index: int) -> float:
+        """Get the y-coordinate of a left/right virtual port."""
+        override = self._vport_y.get((left, index))
+        if override is not None:
+            return override
+        # Left and right ports are numbered independently, so offset the right ones
+        # by half a vport_margin to interleave them with the left ones: otherwise an
+        # entering and an exiting conduit could line up and look like a single one.
+        offset = 0.5 if left else 1.0
+        return (index + offset) * settings.vport_margin
 
     def add_conduit_duct(self, conduit_duct: "ConduitDuct") -> None:
         """Register conduit duct."""
@@ -539,7 +501,7 @@ class TopConduitDuct(SvgBlock):
         top_components[0]'s own O_I ports for this timeline (see route_conduits/
         the reservation loop at its top) -- as opposed to also carrying a conduit
         arriving from elsewhere, e.g. a sibling's own broadcast hopping through
-        this same row (see ComponentBlock.sibling_point_for). Everything sharing
+        this same row (see _sibling_point_for). Everything sharing
         this bundle in the "own ports only" case still gets its own, individually
         correct lane position (unconnected ports included, reserved but never
         drawn -- see the reservation loop), so shifting where the bundle as a
@@ -624,7 +586,7 @@ class TopConduitDuct(SvgBlock):
 
         Since every later conduit reuses this same memoized point instead of
         deciding its own cruise height, the bus only needs to bend down to
-        `_hlanes[sender]`'s dedicated row if `origin` itself isn't already safe to
+        a cruise height if `origin` itself isn't already safe to
         cruise at (see CruiseLane) -- unlike a plain per-conduit CruiseLane,
         there's no other conduit here that might independently need the bend, so
         nothing is left un-merged by skipping it. Forcing the bend regardless
@@ -635,9 +597,7 @@ class TopConduitDuct(SvgBlock):
         trunk_point = self._trunk_points.get(sender)
         if trunk_point is None:
             # Whether the trunk is needed depends on its branches (see cruise_needed)
-            trunk_lanes: list[AnyLane] = [
-                self._cruise(shared_lane=self._hlanes[sender], crosses=False)
-            ]
+            trunk_lanes: list[AnyLane] = [self._cruise(bus=sender, crosses=False)]
             trunk_point = LanePoint(origin, trunk_lanes)
             self._trunk_points[sender] = trunk_point
             self._routes.append(ConduitRoute(origin, trunk_point, trunk_lanes))
@@ -658,12 +618,25 @@ class TopConduitDuct(SvgBlock):
             self._fill_destinations()
         return self._destinations.keys()
 
-    def _sibling_point_for(self, conduit: Conduit) -> tuple[list[Lane], Point] | None:
-        """See ComponentBlock.sibling_point_for -- None if we're not one of a
-        component's own subtimelines (e.g. we're the root timeline)."""
+    def _sibling_point_for(self, conduit: Conduit) -> Point | None:
+        """Hand `conduit`, which leaves this timeline, to the next sibling subtimeline
+        (of the same top component) on the right.
+
+        The conduit then passes through that sibling's own ducts on its way out,
+        instead of skipping over it, as a chain of single hops until the rightmost
+        sibling. Returns a Point (relative to this timeline) for the virtual port on
+        that sibling, or None if there is no sibling to our right (or we're the root
+        timeline) and the conduit must exit to our parent.
+        """
         if not self.top_components:
             return None
-        return self.top_components[0].sibling_point_for(self.tlblock, conduit)
+        siblings = self.top_components[0].subtimelines
+        idx = siblings.index(self.tlblock)
+        if idx == len(siblings) - 1:
+            return None
+        tcd = siblings[idx + 1].top_conduit_duct
+        vidx = tcd.add_virtual_port(conduit, left=True)
+        return SiblingVirtualPortPoint(self.tlblock, tcd, vidx, left=False)
 
     def _route_to_sibling_or_parent(
         self,
@@ -671,8 +644,8 @@ class TopConduitDuct(SvgBlock):
         preferred_y: float | None = None,
         lane_key: Reference | None = None,
     ) -> tuple[list[Lane], Point]:
-        """Resolve a conduit with no destination in this timeline: hand it to a
-        sibling subtimeline one hop closer (see ComponentBlock.sibling_point_for), or
+        """Resolve a conduit with no destination in this timeline: hand it to the
+        next sibling subtimeline (see _sibling_point_for), or
         if it genuinely exits to our parent timeline, (re)group it by receiver so
         conduits from different senders heading to the same destination share a lane
         instead of each getting their own.
@@ -683,14 +656,14 @@ class TopConduitDuct(SvgBlock):
             passing through this timeline keeps traveling in a straight line
             instead of bending to some unrelated, independently numbered exit
             height. Unused for a sibling hop, which always has its own fixed
-            landing point on the sibling's side (see ComponentBlock.
-            sibling_point_for) that this timeline's own y has no say in.
+            landing point on the sibling's side that this timeline's own y has no
+            say in.
         lane_key: key of the exit lane in ducts[-1], instead of conduit.receiver --
             see _shares_sending_port.
         """
         sibling = self._sibling_point_for(conduit)
         if sibling is not None:
-            return sibling
+            return [], sibling
         lanes = [self.ducts[-1].vlanes_out[lane_key or conduit.receiver]]
         idx = self.add_virtual_port(
             conduit, left=False, key=conduit.receiver, y=preferred_y
@@ -748,21 +721,18 @@ class TopConduitDuct(SvgBlock):
             for conduit in conduits:
                 yield (-1, origin, conduit, len(conduits) > 1)
 
-    def _get_duct_conduits(
-        self,
-    ) -> Iterator[tuple[int, Reference, list[Lane], Point, Conduit]]:
+    def _get_duct_conduits(self) -> Iterator[tuple[int, Reference, Point, Conduit]]:
         """Iterator over all conduits connected to ConduitDucts.
 
         Yields:
-            (duct_index, key, extra_lanes, origin_point, conduit) for each conduit,
-            starting with conduits connected to the right-most port. extra_lanes
-            contains any lanes needed to route the conduit past subtimelines between
-            its origin and the duct. key is the reference lanes local to this timeline
-            should be grouped by for this conduit -- see ConduitDuct.get_conduits.
+            (duct_index, key, origin_point, conduit) for each conduit, starting with
+            conduits connected to the right-most port. key is the reference lanes
+            local to this timeline should be grouped by for this conduit -- see
+            ConduitDuct.get_conduits.
         """
         for idx, duct in enumerate(self.ducts):
-            for key, extra_lanes, origin, conduit in duct.get_conduits():
-                yield (idx, key, extra_lanes, origin, conduit)
+            for key, origin, conduit in duct.get_conduits():
+                yield (idx, key, origin, conduit)
 
     def _finish_bottom_route(
         self, route_origin: Point, idest: int, lanes: list[AnyLane], conduit: Conduit
@@ -777,10 +747,11 @@ class TopConduitDuct(SvgBlock):
         this conduit. A destination inside a nested subtimeline instead (not a
         PortPoint) has no such requirement.
         """
-        entry_lanes, dest = self.ducts[idest].get_point_for(conduit)
-        lanes.extend(entry_lanes)
+        dest = self.ducts[idest].get_point_for(conduit)
         final_ends_horizontal = True if isinstance(dest, PortPoint) else None
-        self._routes.append(ConduitRoute(route_origin, dest, lanes, final_ends_horizontal))
+        self._routes.append(
+            ConduitRoute(route_origin, dest, lanes, final_ends_horizontal)
+        )
 
     def route_conduits(self) -> None:
         """Route all conduits inside this timeline and all subtimelines."""
@@ -878,13 +849,13 @@ class TopConduitDuct(SvgBlock):
                     # this hop's own fixed landing point.
                     route_origin = self._join_trunk(conduit.sender, route_origin)
                     # The hop travels at the trunk's height, across the whole row
-                    self._crossing_buses.add(id(self._hlanes[conduit.sender]))
+                    self._crossing_buses.add(conduit.sender)
                 else:
                     # A plain shared-bus CruiseLane wouldn't do here: a sibling
                     # subtimeline's own entry point (or a genuine exit's own
                     # virtual port) already gives this route a fixed, specific
-                    # landing y of its own, unrelated to this timeline's _hlanes
-                    # numbering -- cruising at some other, unrelated y first would
+                    # landing y of its own, unrelated to this timeline's shared
+                    # buses -- cruising at some other, unrelated y first would
                     # just add a disconnected detour that has to be corrected
                     # again right where it lands. Align with that landing y
                     # instead (clamped to only as much altitude as actually
@@ -894,7 +865,7 @@ class TopConduitDuct(SvgBlock):
                     if isinstance(origin, VirtualPortPoint):
                         # This conduit is itself just passing through (it arrived
                         # here as a hop from a previous sibling, see
-                        # ComponentBlock.sibling_point_for) -- its own y is
+                        # _sibling_point_for) -- its own y is
                         # already fixed and, unlike a real component's port,
                         # knowable before layout runs (see VirtualPortPoint), so
                         # if it's a genuine exit below (not a further sibling
@@ -922,11 +893,7 @@ class TopConduitDuct(SvgBlock):
                 # trusting the trunk's already-fixed y all the way to their own,
                 # possibly much further, entry point. Only a destination past
                 # ducts[0] actually passes over one of this row's components.
-                lanes.append(
-                    self._cruise(
-                        shared_lane=self._hlanes[conduit.sender], crosses=idest > 0
-                    )
-                )
+                lanes.append(self._cruise(bus=conduit.sender, crosses=idest > 0))
                 if idest > 0:
                     extend_lane = self.ducts[idest].vlanes_in[conduit.sender]
                     lanes.append(extend_lane)
@@ -953,12 +920,9 @@ class TopConduitDuct(SvgBlock):
         # get_conduits): usually conduit.sender, so e.g. a multicast shares a lane
         # right up to where each receiver actually differs, but conduits already
         # forwarded on from a subtimeline keep whatever key grouped them there.
-        for iduct, key, extra_lanes, origin, conduit in self._get_duct_conduits():
+        for iduct, key, origin, conduit in self._get_duct_conduits():
             destination = self._destinations.get(conduit.receiving_component())
-            # A fresh copy: extra_lanes may now be shared by several conduits in the
-            # same group (see ConduitDuct.get_conduits), so appending to it below must
-            # not mutate what the other conduits in that group see.
-            lanes: list[AnyLane] = list(extra_lanes)
+            lanes: list[AnyLane] = []
             if destination is None:  # Route to a sibling subtimeline, or the parent
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[key])
@@ -985,7 +949,7 @@ class TopConduitDuct(SvgBlock):
                     # resolves to a height consistent with every other cruise in
                     # this row (see _apply_lanes) instead of an unrelated,
                     # independently-numbered one.
-                    lanes.append(self._cruise(shared_lane=self._hlanes[key]))
+                    lanes.append(self._cruise(bus=key))
                     lanes.append(self.ducts[idest].vlanes_in[key])
                 self._finish_bottom_route(origin, idest, lanes, conduit)
                 continue
@@ -995,7 +959,7 @@ class TopConduitDuct(SvgBlock):
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[key])
                     # See the "B" branch above.
-                    lanes.append(self._cruise(shared_lane=self._hlanes[key]))
+                    lanes.append(self._cruise(bus=key))
                 lanes.append(self.ducts[-1].vlanes_out[key])
                 if idest != len(self.top_components) - 1:
                     lanes.append(self._hlanes_for_s[key])
@@ -1012,13 +976,9 @@ class TopConduitDuct(SvgBlock):
         if height:
             height += settings.hlane_margin
         # Every CruiseLane resolves dynamically through safe_cruise_height at
-        # render time (see _apply_lanes) rather than through a statically
-        # pre-assigned position -- _hlanes itself is (as of this dynamic
-        # resolution) only ever used to hand a shared-bus CruiseLane a stable
-        # per-sender identity to cache its own resolved height against (see
-        # route_conduits/_apply_lanes's `key = id(...)`), never read for an
-        # actual position, so it contributes nothing to this row's height on its
-        # own. Reserve room for every route that has a CruiseLane instead
+        # render time (see resolve_cruise) rather than through a statically
+        # pre-assigned position. Reserve room for every route that has a
+        # CruiseLane instead
         # (routing is already done by now -- see ModelBlock.__init__ -- so every
         # one of them already exists in self._routes): every one of them
         # (skipped or not) pushes the *next* one further away in turn (see
@@ -1047,8 +1007,8 @@ class TopConduitDuct(SvgBlock):
             for lane in route.lanes
             if isinstance(lane, CruiseLane) and self.cruise_needed(lane)
         ]
-        buses = {id(lane.shared_lane) for lane in needed if lane.shared_lane}
-        cruising_lanes = len(buses) + sum(1 for lane in needed if not lane.shared_lane)
+        buses = {lane.bus for lane in needed if lane.bus is not None}
+        cruising_lanes = len(buses) + sum(1 for lane in needed if lane.bus is None)
         if cruising_lanes:
             height += (cruising_lanes + 1) * settings.hlane_margin
         # Also reserve enough height for every left/right virtual port (see
@@ -1139,34 +1099,24 @@ class ConduitDuct(SvgBlock):
             self._fill_destinations()
         return self._destinations.keys()
 
-    def get_point_for(self, conduit: Conduit) -> tuple[list[Lane], Point]:
+    def get_point_for(self, conduit: Conduit) -> Point:
         """Get a Point to describe the position of the destination of the conduit."""
         idx = self._destinations[conduit.receiving_component()]
         connector = self.right_connectors[idx]
         if isinstance(connector, ComponentBlock):
-            return [], PortPoint(connector, conduit.receiving_port())
-        else:
-            owner = connector.top_components[0]
-            # Always enter via the first (duct-adjacent) subtimeline. If the
-            # destination actually lives further along, that subtimeline's own
-            # routing hands the conduit to its sibling (see
-            # ComponentBlock.sibling_point_for), sharing lanes with whatever it
-            # already needs for that sender, instead of a dedicated pass lane.
-            connector = owner.subtimelines[0].top_conduit_duct
-            vidx = connector.add_virtual_port(conduit, left=True)
-            point = VirtualPortPointInDuct(connector, vidx, left=False)
-            lanes = owner.pass_lanes_to_duct(
-                connector.tlblock, conduit.sender, duct_on_left=True
-            )
-            return lanes, point
+            return PortPoint(connector, conduit.receiving_port())
+        # Always enter via the first (duct-adjacent) subtimeline. If the destination
+        # lives in a later sibling, that subtimeline's own routing hands the conduit
+        # on (see TopConduitDuct._sibling_point_for).
+        connector = connector.top_components[0].subtimelines[0].top_conduit_duct
+        vidx = connector.add_virtual_port(conduit, left=True)
+        return VirtualPortPointInDuct(connector, vidx, left=False)
 
-    def get_conduits(
-        self,
-    ) -> Iterator[tuple[Reference, list[Lane], Point, Conduit]]:
+    def get_conduits(self) -> Iterator[tuple[Reference, Point, Conduit]]:
         """Iterator over all conduits that enter this conduit duct from left_connectors.
 
         Yields:
-            (key, extra_lanes, origin_point, conduit) for each conduit. key is the
+            (key, origin_point, conduit) for each conduit. key is the
             reference that lanes local to the *receiving* timeline should be grouped
             by for this conduit -- conduit.sender for a conduit fresh from a real
             component, or the key it was already grouped under if it's being forwarded
@@ -1178,22 +1128,18 @@ class ConduitDuct(SvgBlock):
             if isinstance(left_connector, ComponentBlock):
                 for conduit in left_connector.conduits_per_operator(Operator.O_F):
                     origin = PortPoint(left_connector, conduit.sending_port())
-                    yield conduit.sender, [], origin, conduit
+                    yield conduit.sender, origin, conduit
             else:
                 left_connector.route_conduits()
-                owner = left_connector.top_components[0]
                 # Loop over conduits coming in from the child timeline. Each group's
                 # own key (not necessarily conduit.sender -- see add_virtual_port)
-                # decides which crossing lane the whole group shares.
+                # decides which lanes the whole group shares.
                 for idx, (key, conduits) in enumerate(
                     left_connector.right_vports.items()
                 ):
                     origin = VirtualPortPointInDuct(left_connector, idx, left=True)
-                    extra_lanes = owner.pass_lanes_to_duct(
-                        left_connector.tlblock, key, duct_on_left=False
-                    )
                     for conduit in conduits:
-                        yield key, extra_lanes, origin, conduit
+                        yield key, origin, conduit
 
     def lane_width(self) -> float:
         """Spacing between this duct's own vlanes (see calc_layout): port_margin at
@@ -1210,7 +1156,9 @@ class ConduitDuct(SvgBlock):
         calc_layout) -- the offset an entering O_I port (see TopConduitDuct.
         port_offsets) needs from this duct's own left edge to land exactly on
         vlanes_in[0]."""
-        lanes_width = (len(self.vlanes_out) + len(self.vlanes_transfer)) * self.lane_width()
+        lanes_width = (
+            len(self.vlanes_out) + len(self.vlanes_transfer)
+        ) * self.lane_width()
         return lanes_width + self._leading_pad
 
     def calc_layout(self, leading_pad: float = 0.0) -> None:

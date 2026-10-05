@@ -208,28 +208,21 @@ class ModelBlock(SvgBlock):
         )
         group.elements.append(model_block)
         # Draw ports
+        tcd = self.timeline_block.top_conduit_duct
         for portname, idx in self.port_indices.items():
             port = self.model.ports[portname]
             title = svg.Title(text=str(port.name))
-            # y must land exactly on this port's own VirtualPortPoint (see
-            # TimelineBlock.route_conduits/conduit_ducts.py): the root
-            # TopConduitDuct's own left/right virtual ports are spaced by
-            # settings.vport_margin, not port_margin (see VirtualPortPoint.
-            # __call__ -- the right side's own extra +0.5 offset there keeps
-            # entering and exiting model ports from lining up too closely, so
-            # it's mirrored here) -- pm is still what the timeline_block itself
-            # is offset by (see calc_layout's moveto), which is a separate,
-            # unrelated margin.
-            vm = settings.vport_margin
-            if port.operator == Operator.F_INIT:
+            # Line up with the root timeline's virtual port (the timeline_block is
+            # offset by 2 * pm, see calc_layout)
+            left = port.operator == Operator.F_INIT
+            y = 2 * pm + tcd.vport_y(left, idx)
+            if left:
                 useid = "#port-f_init"
                 x = pm - settings.port_size
-                y = 2 * pm + (idx + 0.5) * vm
                 path: list[svg.PathData] = [svg.M(pm, y), svg.h(pm)]
-            elif port.operator == Operator.O_F:
+            else:
                 useid = "#port-o_f"
                 x = self.width - pm + settings.port_size
-                y = 2 * pm + (idx + 1) * vm
                 path: list[svg.PathData] = [svg.M(self.width - pm, y), svg.h(-pm)]
             use = svg.Use(href=useid, x=x, y=y, elements=[title])
             group.elements.append(use)

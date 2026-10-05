@@ -16,7 +16,7 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
-    from ymmsl2svg.conduit_ducts import ConduitDuct, Lane, Point
+    from ymmsl2svg.conduit_ducts import ConduitDuct
     from ymmsl2svg.timeline_block import TimelineBlock
 
 
@@ -82,14 +82,6 @@ class ComponentBlock(SvgBlock):
         self.conduits_per_port: dict[Identifier, list[Conduit]] = {
             port: [] for port in self.component.ports
         }
-
-        # Deferred import to avoid a circular import with conduit_ducts.py.
-        from ymmsl2svg.conduit_ducts import Lanes
-
-        self._pass_lanes = Lanes(horizontal=True)
-        """Shared horizontal lanes (one per sender) for conduits that pass over one or
-        more of our subtimelines to reach another one. Drawn once, directly above all of
-        our subtimelines, regardless of how many of them a given conduit crosses."""
 
     def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
         """Iterate over the component's ports for the given operator.
@@ -194,65 +186,6 @@ class ComponentBlock(SvgBlock):
         x, y = self.port_positions[port]
         return (x - self._port_segment_x[port], y - self._subtimeline_y)
 
-    def pass_lanes_to_duct(
-        self, tlblock: "TimelineBlock", key: Reference, duct_on_left: bool
-    ) -> list["Lane"]:
-        """Lane needed if a conduit has to cross one or more sibling subtimelines to
-        travel between `tlblock` and the ConduitDuct they all share, on its left
-        (duct_on_left) or right. Conduits sharing the same `key` (usually the sender,
-        but see ConduitDuct.get_conduits for exceptions) share a single lane for this,
-        regardless of how many siblings they cross (see self._pass_lanes)."""
-        idx = self.subtimelines.index(tlblock)
-        crosses_any = idx > 0 if duct_on_left else idx < len(self.subtimelines) - 1
-        if not crosses_any:
-            return []
-        return [self._pass_lanes[key]]
-
-    def sibling_point_for(
-        self, frame: "TimelineBlock", conduit: Conduit
-    ) -> tuple[list["Lane"], "Point"] | None:
-        """Hand `conduit` one hop closer to wherever it needs to go next, from `frame`
-        (one of self.subtimelines) towards a sibling: return an empty lane list and a
-        Point (in `frame`'s own coordinate frame) for a virtual port on the immediate
-        neighbor of `frame` in that direction. That neighbor's own routing picks it up
-        from there (as a conduit arriving from its parent), continuing the hand-off
-        itself if it still isn't reachable there -- so a multi-subtimeline crossing is
-        drawn as a chain of single hops, each sharing whatever lanes its own
-        subtimeline already uses for that sender, rather than a lane bypassing the
-        siblings in between.
-
-        If the destination lives in a sibling, hop straight towards it. Otherwise
-        `conduit` is simply leaving this timeline (conduits always exit to the right,
-        see TopConduitDuct._route_to_sibling_or_parent): if `frame` isn't already the
-        rightmost sibling, still hop one step right so the conduit passes through that
-        sibling's own duct network on its way out, instead of skipping over it. None
-        only once `frame` is the rightmost sibling -- there's nowhere closer left to
-        hop to, so it must genuinely exit to our own parent duct.
-        """
-        from ymmsl2svg.conduit_ducts import SiblingVirtualPortPoint
-
-        frame_idx = self.subtimelines.index(frame)
-        target_idx = None
-        for i, subtl in enumerate(self.subtimelines):
-            if i != frame_idx and (
-                conduit.receiving_component() in subtl.top_conduit_duct.destinations()
-            ):
-                target_idx = i
-                break
-
-        if target_idx is not None:
-            next_idx = frame_idx + 1 if target_idx > frame_idx else frame_idx - 1
-        elif frame_idx < len(self.subtimelines) - 1:
-            next_idx = frame_idx + 1
-        else:
-            return None
-
-        enter_from_left = next_idx > frame_idx
-        tcd = self.subtimelines[next_idx].top_conduit_duct
-        vidx = tcd.add_virtual_port(conduit, left=enter_from_left)
-        point = SiblingVirtualPortPoint(frame, tcd, vidx, left=not enter_from_left)
-        return [], point
-
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
         subtimeline_width = sum(subtl.width for subtl in self.subtimelines)
@@ -272,18 +205,6 @@ class ComponentBlock(SvgBlock):
         # Make space for o_i and s ports
         if self.o_i_ports or self.s_ports:
             self.height += settings.port_size
-        # O_I/S ports sit right below the component, at the top of the pass-lanes gap
-        # (added next) -- so this must be captured before that gap changes self.height.
-        entry_y = self.y + self.height
-
-        # Make space for lanes shared by conduits passing over one of our
-        # subtimelines to reach another (see pass_lanes_to_duct), directly above all
-        # of our subtimelines.
-        if len(self._pass_lanes):
-            lane_offset = entry_y + settings.hlane_margin / 2
-            spacing = settings.hlane_margin
-            self.height += self._pass_lanes.set_pos(lane_offset, spacing)
-            self.height += settings.hlane_margin
 
         # Calculate (x, y) positions for each port
         for ports, x in [(self.f_init_ports, 0), (self.o_f_ports, self.width)]:
@@ -295,7 +216,7 @@ class ComponentBlock(SvgBlock):
         segment_bounds = self._segment_bounds()
         self._subtimeline_y = self.y + self.height
         for i, timeline in enumerate(self.subtimelines):
-            self._place_subtimeline(i, timeline, segment_bounds, entry_y)
+            self._place_subtimeline(i, timeline, segment_bounds)
 
     def _segment_bounds(self) -> list[float]:
         """x-boundaries of each subtimeline's segment: segment i spans [bounds[i],
@@ -312,10 +233,9 @@ class ComponentBlock(SvgBlock):
         i: int,
         timeline: "TimelineBlock",
         segment_bounds: list[float],
-        entry_y: float,
     ) -> None:
-        """Position `timeline`'s O_I/S ports (at entry_y, right below the component)
-        and move it into its segment."""
+        """Position `timeline`'s O_I/S ports (right below the component) and move it
+        into its segment."""
         seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
         oi_ports = list(
             self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
@@ -328,13 +248,13 @@ class ComponentBlock(SvgBlock):
         x0 = seg_x + oi_offset
         for j, port in enumerate(oi_ports):
             x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, entry_y)
+            self.port_positions[port.name] = (x, self._subtimeline_y)
             self._port_segment_x[port.name] = seg_x
 
         x0 = seg_right + s_offset
         for j, port in enumerate(s_ports):
             x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, entry_y)
+            self.port_positions[port.name] = (x, self._subtimeline_y)
             self._port_segment_x[port.name] = seg_x
 
         # Move subtimeline
