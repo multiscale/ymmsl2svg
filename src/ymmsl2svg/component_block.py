@@ -31,6 +31,7 @@ class ComponentBlock(SvgBlock):
     def __init__(
         self,
         component: Component,
+        row: "TimelineBlock",
         subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
@@ -47,6 +48,8 @@ class ComponentBlock(SvgBlock):
 
         # Data
         self.component = component
+        self.row = row
+        """Timeline that this component is in."""
         self.subtimelines = subtimelines
         self.port_timelines = port_timelines
         """Timeline (relative to the model) of each O_I and S port, by full port
@@ -79,6 +82,9 @@ class ComponentBlock(SvgBlock):
         self._subtimeline_y: float = 0
         """y-offset of the subtimelines (shared by all of them), used to convert an
         O_I/S port's position to be relative to its subtimeline."""
+        self.subtimeline_gap: float = 0
+        """Space between our O_I/S ports and our subtimelines, for interact conduits
+        passing right under us (set by TimelineBlock.align_nesting_levels)."""
         self.conduits_per_port: dict[Identifier, list[Conduit]] = {
             port: [] for port in self.component.ports
         }
@@ -103,6 +109,11 @@ class ComponentBlock(SvgBlock):
         if reverse:
             ports = reversed(ports)
         yield from ports
+
+    def subtimeline_for_port(self, port: Identifier) -> "TimelineBlock":
+        """Get the subtimeline that an O_I or S port sends or receives in."""
+        timeline = self.port_timelines[self.component.name + port]
+        return next(tl for tl in self.subtimelines if tl.node.timeline == timeline)
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
@@ -215,7 +226,7 @@ class ComponentBlock(SvgBlock):
                 y += settings.port_margin
 
         segment_bounds = self._segment_bounds()
-        self._subtimeline_y = self.y + self.height
+        self._subtimeline_y = self.y + self.height + self.subtimeline_gap
         for i, timeline in enumerate(self.subtimelines):
             self._place_subtimeline(i, timeline, segment_bounds)
 
@@ -249,13 +260,13 @@ class ComponentBlock(SvgBlock):
         x0 = seg_x + oi_offset
         for j, port in enumerate(oi_ports):
             x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self._subtimeline_y)
+            self.port_positions[port.name] = (x, self.y + self.height)
             self._port_segment_x[port.name] = seg_x
 
         x0 = seg_right + s_offset
         for j, port in enumerate(s_ports):
             x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self._subtimeline_y)
+            self.port_positions[port.name] = (x, self.y + self.height)
             self._port_segment_x[port.name] = seg_x
 
         # Move subtimeline

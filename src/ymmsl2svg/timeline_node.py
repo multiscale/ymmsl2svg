@@ -14,10 +14,6 @@ from ymmsl.v0_2.timeline_resolver import TimelineChecker
 
 def create_timeline_nodes(model: Model) -> "TimelineNode":
     """Create all timeline nodes for a model and return the root node."""
-    if model.matching_timelines:
-        raise NotImplementedError(
-            "Visualization of matching timelines is not yet implemented."
-        )
     checker = check_timelines(model)
     root = TimelineNode(Timeline([]), None)
 
@@ -71,7 +67,7 @@ class TimelineNode:
     def calculate_component_order(self, model: Model) -> None:
         """Determine order of components in this timeline."""
         # Group all components with shared timelines
-        component_groups = self._group_components()
+        component_groups = self._group_components(model)
         group_per_component = {}
         for i, group in enumerate(component_groups):
             for component in group:
@@ -100,33 +96,30 @@ class TimelineNode:
         for subtl in self.children.values():
             subtl.calculate_component_order(model)
 
-    def _group_components(self) -> list[list[Component]]:
+    def _group_components(self, model: Model) -> list[list[Component]]:
         """Group all components that (indirectly) share a timeline.
 
         For example, a timeline bridge connecting two components A and B will have two
         subtimelines: ":A" shared between components A and bridge, and ":B" shared
         between components B and bridge. All three components are part of a single
-        group.
+        group. Components whose subtimelines are declared as matching timelines (e.g.
+        an interact coupling) are linked in the same way.
         """
-        shared_subtl_per_component: dict[Component, list[TimelineNode]] = {}
-        for subtl in self.children.values():
-            if len(subtl.parent_components) > 2:
+        links_per_component: dict[Component, list[list[Component]]] = {}
+        for name, link in self._component_links(model):
+            if len(link) > 2:
                 raise RuntimeError(
-                    f"Unsupported coupling graph: subtimeline '{subtl.timeline}' "
-                    f"has {len(subtl.parent_components)} parent components, but we "
-                    "support no more than 2."
+                    f"Unsupported coupling graph: subtimeline '{name}' has "
+                    f"{len(link)} parent components, but we support no more than 2."
                 )
-            if len(subtl.parent_components) > 1:
-                for component in subtl.parent_components:
-                    shared_subtl_per_component.setdefault(component, []).append(subtl)
+            for component in link:
+                links_per_component.setdefault(component, []).append(link)
 
-        for comp, timelines in shared_subtl_per_component.items():
-            if len(timelines) > 2:
-                names = ", ".join(str(tl.timeline) for tl in timelines)
+        for comp, links in links_per_component.items():
+            if len(links) > 2:
                 raise RuntimeError(
-                    f"Unsupported coupling graph: component '{comp.name}' has "
-                    f"{len(timelines)} shared subtimelines ({names}), "
-                    "but we support no more than 2."
+                    f"Unsupported coupling graph: component '{comp.name}' shares "
+                    f"{len(links)} subtimelines, but we support no more than 2."
                 )
 
         component_groups = []
@@ -134,7 +127,7 @@ class TimelineNode:
         for component in self.components:
             if component in done:
                 continue
-            if len(shared_subtl_per_component.get(component, [])) > 1:
+            if len(links_per_component.get(component, [])) > 1:
                 # We'll get back to this component later, the first component in the
                 # group should be one with only a single shared timeline
                 continue
@@ -145,8 +138,8 @@ class TimelineNode:
                 group.append(next_component)
                 component = next_component
                 next_component = None
-                for subtl in shared_subtl_per_component.get(component, []):
-                    for comp in subtl.parent_components:
+                for link in links_per_component.get(component, []):
+                    for comp in link:
                         if comp not in group:
                             assert next_component is None
                             next_component = comp
@@ -160,6 +153,37 @@ class TimelineNode:
                 "unsupported coupling graph."
             )
         return component_groups
+
+    def _component_links(self, model: Model) -> list[tuple[Timeline, list[Component]]]:
+        """Get the sets of components in this timeline that share a subtimeline.
+
+        A subtimeline is shared when it has more than one parent component, or when
+        it matches subtimelines of other components (see Model.matching_timelines).
+        Matching timelines that are not direct subtimelines of this timeline (e.g.
+        those of components in different subtimelines) don't link components here.
+
+        Returns:
+            (timeline, components) for each set of components with at least 2 members.
+        """
+        links = [
+            (subtl.timeline, subtl.parent_components)
+            for subtl in self.children.values()
+            if len(subtl.parent_components) > 1
+        ]
+        for mt in model.matching_timelines or []:
+            link: list[Component] = []
+            for timeline in mt.matches:
+                if len(timeline) == 0 or timeline.parent != self.timeline:
+                    continue
+                subtl = self.children.get(timeline[-1])
+                if subtl is None:
+                    continue
+                for component in subtl.parent_components:
+                    if component not in link:
+                        link.append(component)
+            if len(link) > 1:
+                links.append((mt.head, link))
+        return links
 
     def _ancestors_of(self, component: Component) -> list[Component]:
         """Get ancestors of the component in our timeline."""
