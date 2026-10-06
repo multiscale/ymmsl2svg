@@ -108,6 +108,23 @@ class PortPoint(Point):
         return self.component.get_port_position(self.port)
 
 
+class RootPortPoint(Point):
+    """Point corresponding to an O_I or S port of a component, relative to the root
+    timeline (instead of to the port's subtimeline, see
+    ComponentBlock.get_port_position)."""
+
+    def __init__(self, component: ComponentBlock, port: Identifier):
+        self.component = component
+        """Component the port belongs to"""
+        self.port = port
+        """Port of the component"""
+
+    def __call__(self) -> tuple[float, float]:
+        x, y = self.component.port_positions[self.port]
+        dx, dy = self.component.row.offset()
+        return (x + dx, y + dy)
+
+
 class VirtualPortPoint(Point):
     """Point corresponding to a virtual port of the TopConduitDuct."""
 
@@ -262,6 +279,42 @@ class ConduitRoute:
         return svg.Path(d=path, class_=["conduit"])
 
 
+class BottomConduitDuct(SvgBlock):
+    """Conduit duct right under the components at one nesting depth, for the
+    conduits of interact couplings (see TimelineBlock.route_interact_conduits).
+
+    Each lane carries one conduit, from an O_I port straight to an S port.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lanes = Lanes(horizontal=True)
+        self._ends: dict[Reference, tuple[Point, Point]] = {}
+        """Origin and destination of the conduit on each lane."""
+
+    def add_lane(self, key: Reference, origin: Point, destination: Point) -> Lane:
+        """Create a lane for a conduit from `origin` to `destination`."""
+        self._ends[key] = (origin, destination)
+        return self._lanes[key]
+
+    def required_height(self) -> float:
+        """Height needed below the O_I and S ports for the lanes of this duct."""
+        return settings.port_size + len(self._lanes) * settings.hlane_margin
+
+    def calc_layout(self, y: float) -> None:
+        """Place this duct right under y, where the O_I and S ports are, spanning
+        all its conduits. Shorter conduits get higher lanes, so they don't cross
+        longer ones."""
+        xs = {key: (start()[0], end()[0]) for key, (start, end) in self._ends.items()}
+        self.x = min(min(x) for x in xs.values())
+        self.width = max(max(x) for x in xs.values()) - self.x
+        self.y = y
+        self.height = self.required_height()
+        keys = sorted(xs, key=lambda key: abs(xs[key][0] - xs[key][1]))
+        for i, key in enumerate(keys):
+            self._lanes[key].pos = y + settings.port_size + i * settings.hlane_margin
+
+
 class TopConduitDuct(SvgBlock):
     """Top conduit duct in a timeline."""
 
@@ -292,6 +345,9 @@ class TopConduitDuct(SvgBlock):
         """Horizontal lanes for conduits going to S ports."""
         self._hlanes_for_oi = Lanes(horizontal=True)
         """Horizontal lanes for conduits going to O_I ports."""
+        self.skip_receivers: set[Reference] = set()
+        """Receiving ports of conduits from our top components that are routed
+        elsewhere (see TimelineBlock.route_interact_conduits)."""
 
         self._routes: list[ConduitRoute] = []
         """List of conduit routes through this timeline."""
@@ -405,7 +461,16 @@ class TopConduitDuct(SvgBlock):
         The ports line up with ducts[0].vlanes_in (O_I) and ducts[-1].vlanes_out
         (S), so conduits go straight up into them. vlanes_out comes first in
         ducts[-1], vlanes_in comes last in ducts[0] (see ConduitDuct.calc_layout).
+
+        Nothing is routed through a timeline without components (interact couplings
+        are routed by TimelineBlock.route_interact_conduits), so then the O_I ports
+        simply go at the left and the S ports at the right.
         """
+        if not self.tlblock.components:
+            num_s_ports = len(
+                list(component.ports_per_operator(Operator.S, self.timeline))
+            )
+            return 0, -num_s_ports * settings.port_margin
         oi_offset = s_offset = 0
         if component == self.top_components[0]:
             oi_offset = max(
@@ -566,6 +631,8 @@ class TopConduitDuct(SvgBlock):
             for conduit in component.conduits_per_operator(
                 Operator.O_I, self.timeline, reverse=True
             ):
+                if conduit.receiver in self.skip_receivers:
+                    continue
                 origin = PortPoint(component, conduit.sending_port())
                 port_conduits = component.conduits_per_port[conduit.sending_port()]
                 yield (idx, origin, conduit, len(port_conduits) > 1)
@@ -694,7 +761,8 @@ class TopConduitDuct(SvgBlock):
                 continue
 
             elif destination[0] == "T":  # Route to a Top destination
-                continue  # TODO, interact coupling
+                # Interact couplings are routed by route_interact_conduits instead
+                continue
 
             route = ConduitRoute(route_origin, dest, lanes)
             self._routes.append(route)
@@ -774,6 +842,10 @@ class TopConduitDuct(SvgBlock):
             )
             height = max(height, port_extent + settings.hlane_margin)
         self.height = height
+
+    def add_route(self, route: ConduitRoute) -> None:
+        """Add a route that was determined elsewhere, to draw in this timeline."""
+        self._routes.append(route)
 
     def to_svg(self) -> svg.G:
         group = super().to_svg()
@@ -904,5 +976,6 @@ class ConduitDuct(SvgBlock):
         width += self.vlanes_in.set_pos(offset + width, lane_width)
         self.width = width
 
-        # Only for debug visualization, our conduits can extend below
-        self.height = settings.component_height
+        # Only for debug visualization, our conduits can extend below. Set to the
+        # height of the components in the row by TimelineBlock.calc_layout.
+        self.height = 0

@@ -1,11 +1,17 @@
 from collections.abc import Callable, Iterator
 
 import svg
-from ymmsl.v0_2 import Reference
+from ymmsl.v0_2 import Operator, Reference
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
-from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
+from ymmsl2svg.conduit_ducts import (
+    BottomConduitDuct,
+    ConduitDuct,
+    ConduitRoute,
+    RootPortPoint,
+    TopConduitDuct,
+)
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_node import TimelineNode
 
@@ -23,12 +29,23 @@ class TimelineBlock(SvgBlock):
         self.node = node
         if len(node.parent_components) > 1:
             raise NotImplementedError(
-                "Visualization for interact coupling is not yet implemented."
+                "Visualization of a timeline shared by multiple components is not "
+                "implemented."
             )
 
+        self.parent: TimelineBlock | None = None  # Set by our parent
+        """Timeline that this one is a subtimeline of, None for the root timeline."""
         self.transform: svg.Transform = svg.Translate(0, 0)
+        self.position: tuple[float, float] = (0, 0)
+        """Position within the parent timeline (see moveto)."""
         self.min_top_height: float = 0
         """Minimum height of our top_conduit_duct, set by align_nesting_levels."""
+
+        # Root timeline only, see route_interact_conduits:
+        self.bottom_ducts: dict[int, BottomConduitDuct] = {}
+        """Per nesting depth: duct right under the components at that depth."""
+        self._bottom_duct_components: dict[int, list[ComponentBlock]] = {}
+        """Per nesting depth: components that the bottom duct passes under."""
 
         self.top_conduit_duct = TopConduitDuct(self, node.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
@@ -41,6 +58,7 @@ class TimelineBlock(SvgBlock):
         subtl_per_component: dict[Reference, list[TimelineBlock]] = {}
         for subnode in node.children.values():
             subtimeline = TimelineBlock(subnode)
+            subtimeline.parent = self
             self.subtimelines.append(subtimeline)
             for component in subnode.parent_components:
                 subtl_per_component.setdefault(component.name, []).append(subtimeline)
@@ -50,6 +68,7 @@ class TimelineBlock(SvgBlock):
             subtimelines = subtl_per_component.get(component.name, [])
             cblock = ComponentBlock(
                 component,
+                self,
                 subtimelines,
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
@@ -95,6 +114,69 @@ class TimelineBlock(SvgBlock):
         for subtimeline in self.subtimelines:
             subtimeline.sort_input_ports(key)
 
+    def offset(self) -> tuple[float, float]:
+        """Get the (x, y) position of this timeline relative to the root timeline."""
+        x = y = 0.0
+        timeline = self
+        while timeline.parent is not None:
+            x, y = x + timeline.position[0], y + timeline.position[1]
+            timeline = timeline.parent
+        return x, y
+
+    def rows_per_depth(self) -> list[list["TimelineBlock"]]:
+        """Get all timelines per nesting depth (this one is depth 0), left to
+        right."""
+        result = [[self]]
+        while True:
+            rows = [
+                subtl
+                for row in result[-1]
+                for component in row.components
+                for subtl in component.subtimelines
+            ]
+            if not rows:
+                return result
+            result.append(rows)
+
+    def route_interact_conduits(self) -> None:
+        """Route the conduits of interact couplings: those from an O_I port to an S
+        port of another component, which requires matching timelines. Must be called
+        on the root timeline, before route_conduits.
+
+        Matching timelines are at the same nesting depth, and the components at the
+        same depth line up (see align_nesting_levels). So these conduits go along a
+        lane right under the components at their depth (see BottomConduitDuct),
+        straight from the O_I port to the S port, and not through the subtimelines.
+        Subtimelines of the components they pass under are moved down to make space
+        (see ComponentBlock.subtimeline_gap).
+        """
+        for depth, rows in enumerate(self.rows_per_depth()):
+            sequence = [component for row in rows for component in row.components]
+            index = {c.component.name: i for i, c in enumerate(sequence)}
+            for isender, sender in enumerate(sequence):
+                for conduit in sender.conduits_per_operator(Operator.O_I):
+                    ireceiver = index.get(conduit.receiving_component())
+                    if ireceiver is None or ireceiver == isender:
+                        continue  # not in an interact coupling
+                    receiver = sequence[ireceiver]
+                    port = receiver.component.ports[conduit.receiving_port()]
+                    if port.operator is not Operator.S:
+                        continue  # not in an interact coupling
+
+                    subtl = sender.subtimeline_for_port(conduit.sending_port())
+                    subtl.top_conduit_duct.skip_receivers.add(conduit.receiver)
+                    origin = RootPortPoint(sender, conduit.sending_port())
+                    dest = RootPortPoint(receiver, conduit.receiving_port())
+                    duct = self.bottom_ducts.setdefault(depth, BottomConduitDuct())
+                    lane = duct.add_lane(conduit.receiver, origin, dest)
+                    self.top_conduit_duct.add_route(ConduitRoute(origin, dest, [lane]))
+
+                    passed = self._bottom_duct_components.setdefault(depth, [])
+                    lo, hi = sorted((isender, ireceiver))
+                    for component in sequence[lo : hi + 1]:
+                        if component not in passed:
+                            passed.append(component)
+
     def route_conduits(self) -> None:
         self.top_conduit_duct.route_conduits()
 
@@ -136,6 +218,16 @@ class TimelineBlock(SvgBlock):
 
         Must be called after calc_layout, which must then be called again to apply it.
         """
+        # Make space for each bottom duct under all components it passes under, below
+        # the lowest of them (their tops line up, see below)
+        for depth, duct in self.bottom_ducts.items():
+            components = self._bottom_duct_components[depth]
+            bottom = max(c.row.components_height() for c in components)
+            for component in components:
+                component.subtimeline_gap = (
+                    bottom - component.height + duct.required_height()
+                )
+
         rows: list[TimelineBlock] = [self]
         while True:
             pairs = [
@@ -146,10 +238,33 @@ class TimelineBlock(SvgBlock):
             ]
             if not pairs:
                 break
-            offset = max(c.height + s.top_conduit_duct.height for c, s in pairs)
+            offset = max(
+                c.height + c.subtimeline_gap + s.top_conduit_duct.height
+                for c, s in pairs
+            )
             for component, subtl in pairs:
-                subtl.min_top_height = offset - component.height
+                subtl.min_top_height = (
+                    offset - component.height - component.subtimeline_gap
+                )
             rows = [subtl for _, subtl in pairs]
+
+    def components_height(self) -> float:
+        """Height of the tallest component in this timeline."""
+        return max((c.height for c in self.components), default=0)
+
+    def _place_bottom_ducts(self) -> None:
+        """Place the bottom ducts (root timeline only) right under the lowest of the
+        components they pass under."""
+        for depth, duct in self.bottom_ducts.items():
+            rows = {c.row for c in self._bottom_duct_components[depth]}
+            duct.calc_layout(
+                max(
+                    row.offset()[1]
+                    + row.top_conduit_duct.height
+                    + row.components_height()
+                    for row in rows
+                )
+            )
 
     def calc_layout(self):
         """Calculate the size and layout of the timeline block and its contents."""
@@ -179,16 +294,28 @@ class TimelineBlock(SvgBlock):
 
         self.width = width
         self.top_conduit_duct.width = self.width
-        self.height = (
-            self.top_conduit_duct.height
-            + max((c.height for c in self.components), default=0)
-            + max((tl.height for tl in self.subtimelines), default=0)
+        components_height = self.components_height()
+        for duct in self.conduit_ducts:
+            duct.height = components_height
+        # Each component's subtimelines sit below it, after its subtimeline_gap
+        self.height = self.top_conduit_duct.height + max(
+            (
+                c.height
+                + c.subtimeline_gap
+                + max((tl.height for tl in c.subtimelines), default=0)
+                for c in self.components
+            ),
+            default=0,
         )
+        if self.parent is None:
+            # All subtimelines have been moved into place now
+            self._place_bottom_ducts()
 
     def moveto(self, x: float, y: float) -> None:
         """Move the complete subtimeline by setting a translation filter on the
         containing SVG group."""
         self.transform = svg.Translate(x, y)
+        self.position = (x, y)
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing this timeline."""
@@ -197,6 +324,7 @@ class TimelineBlock(SvgBlock):
         # Add sub-elements
         group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
         group.elements.extend(tl.to_svg() for tl in self.subtimelines)
+        group.elements.extend(duct.to_svg() for duct in self.bottom_ducts.values())
         group.elements.append(self.top_conduit_duct.to_svg())
         # Set translation
         group.transform = [self.transform]

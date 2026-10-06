@@ -1,0 +1,44 @@
+ymmsl_version: v0.2
+description: interact coupling between micro models, with a component in between
+models:
+  cousins_between:
+    components:
+      macro1:
+        description: Macro model 1
+        ports:
+          o_i: init_out
+          s: final_in
+      macro2:
+        description: Macro model 2
+        ports:
+          o_i: init_out
+          s: final_in
+      micro1:
+        description: Micro model called by macro1
+        ports:
+          f_init: init
+          o_i: out
+          s: in
+          o_f: final
+      post1:
+        description: Post-processes the result of micro1
+        ports:
+          f_init: in
+          o_f: out
+      micro2:
+        description: Micro model called by macro2
+        ports:
+          f_init: init
+          o_i: out
+          s: in
+          o_f: final
+    matching_timelines:
+      macro1:micro1: macro2:micro2
+    conduits:
+      macro1.init_out: micro1.init
+      micro1.final: post1.in
+      post1.out: macro1.final_in
+      macro2.init_out: micro2.init
+      micro2.final: macro2.final_in
+      micro1.out: micro2.in
+      micro2.out: micro1.in
