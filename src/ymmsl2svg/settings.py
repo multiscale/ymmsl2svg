@@ -29,6 +29,14 @@ class Settings:
     ports will be ordered as they are defined in the yMMSL file."""
 
     conduit_margin: float = 4  # Must be <= port_margin!
+    """Spacing between vertical conduit lanes (see ConduitDuct.calc_layout)."""
+    hlane_margin: float = 4  # Must be <= port_margin, and > conduit_width!
+    """Spacing between horizontal conduit lanes (see TopConduitDuct). Parallel
+    conduits on adjacent lanes only look like separate lines if this is larger than
+    conduit_width."""
+    vport_margin: float = 5  # Must be <= port_margin!
+    """Spacing between the virtual ports on the left/right of a TopConduitDuct (see
+    VirtualPortPoint)."""
     conduit_width: float = 2
 
 

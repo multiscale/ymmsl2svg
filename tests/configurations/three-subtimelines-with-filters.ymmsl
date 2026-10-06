@@ -1,0 +1,70 @@
+ymmsl_version: v0.2
+
+description: One macro with three components living in three separate subtimelines
+  (branch_a, and branch_b1/branch_b2 nested inside meso_b's own two subtimelines
+  in branch_b), plus a repeat-filtered F_INIT feeding directly into meso_b (in
+  branch_b, macro's second subtimeline) -- passing over branch_a, macro's first
+  subtimeline, on its way there -- and a two-level last-filtered conduit leaving
+  a doubly-nested subtimeline component (branch_b1) for a separate sink component
+  on the root timeline.
+models:
+  three_subtimelines_with_filters:
+    components:
+      source:
+        description: Root-level component feeding meso_b directly with a repeat
+          filter, passing over branch_a (macro's first subtimeline) to reach
+          branch_b (macro's second subtimeline)
+        ports:
+          o_f: value
+      macro:
+        description: Top-level macro, dispatches into branch_a and branch_b
+        ports:
+          timeline branch_a:
+            o_i: out_a
+            s: in_a
+          timeline branch_b:
+            o_i: out_b
+            s: in_b
+      micro_a:
+        description: Micro in branch_a
+        ports:
+          f_init: input
+          o_f: output
+      meso_b:
+        description: Meso model in branch_b, itself dispatches into branch_b1 and
+          branch_b2; also receiving F_INIT from source
+        ports:
+          f_init: init direct
+          o_f: final
+          timeline branch_b1:
+            o_i: out_b1
+            s: in_b1
+          timeline branch_b2:
+            o_i: out_b2
+            s: in_b2
+      micro_b1:
+        description: Micro in branch_b1 (nested inside meso_b, inside branch_b), also
+          feeding a separate sink on the root timeline with a two-level last filter
+        ports:
+          f_init: input
+          o_f: output
+      micro_b2:
+        description: Micro in branch_b2
+        ports:
+          f_init: input
+          o_f: output
+      sink:
+        description: Root-level component receiving micro_b1's output, lifted two
+          timeline levels (branch_b1 -> branch_b -> root) by a two-level last filter
+        ports:
+          f_init: input
+    conduits:
+      source.value: repeat meso_b.direct
+      macro.out_a: micro_a.input
+      micro_a.output: macro.in_a
+      macro.out_b: meso_b.init
+      meso_b.final: macro.in_b
+      meso_b.out_b1: micro_b1.input
+      micro_b1.output: [meso_b.in_b1, last last sink.input]
+      meso_b.out_b2: micro_b2.input
+      micro_b2.output: meso_b.in_b2

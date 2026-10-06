@@ -34,6 +34,7 @@ class ComponentBlock(SvgBlock):
         subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
+        port_timelines: dict[Reference, Timeline],
     ) -> None:
         super().__init__()
         # Geometry
@@ -47,22 +48,20 @@ class ComponentBlock(SvgBlock):
         # Data
         self.component = component
         self.subtimelines = subtimelines
-        if len(subtimelines) > 1:
-            raise NotImplementedError(
-                "Visualization of components with multiple subtimelines "
-                "is not yet implemented."
-            )
+        self.port_timelines = port_timelines
+        """Timeline (relative to the model) of each O_I and S port, by full port
+        reference (see TimelineNode.port_timelines)."""
 
         # Conduit connections to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
         self.right_conduit_duct = right_conduit_duct
         left_conduit_duct.add_right_connector(self)
         right_conduit_duct.add_left_connector(self)
-        if subtimelines:  # TODO: support multiple subtimelines
-            left_conduit_duct.add_right_connector(subtimelines[0].top_conduit_duct)
-            right_conduit_duct.add_left_connector(subtimelines[0].top_conduit_duct)
-        # Conduit connections to subtimelines
+        # Conduit connections to subtimelines. Each subtimeline gets its own slot in
+        # the same left/right ducts as this component.
         for subtl in subtimelines:
+            left_conduit_duct.add_right_connector(subtl.top_conduit_duct)
+            right_conduit_duct.add_left_connector(subtl.top_conduit_duct)
             subtl.top_conduit_duct.add_top_component(self)
 
         self._ports_per_operator = {
@@ -74,9 +73,36 @@ class ComponentBlock(SvgBlock):
         self.s_ports = self._ports_per_operator[Operator.S]
 
         self.port_positions: dict[Identifier, tuple[float, float]] = {}
+        self._port_segment_x: dict[Identifier, float] = {}
+        """x-offset of the subtimeline that each O_I/S port belongs to, used to convert
+        its position to be relative to that subtimeline."""
+        self._subtimeline_y: float = 0
+        """y-offset of the subtimelines (shared by all of them), used to convert an
+        O_I/S port's position to be relative to its subtimeline."""
         self.conduits_per_port: dict[Identifier, list[Conduit]] = {
             port: [] for port in self.component.ports
         }
+
+    def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
+        """Iterate over the component's ports for the given operator.
+
+        Args:
+            operator: Operator to filter on.
+            timeline: Only return the ports that send or receive in this timeline.
+                If None or empty, all ports are returned.
+            reverse: Reverse the order of the ports.
+        """
+        ports = self._ports_per_operator[operator]
+        if timeline:
+            name = self.component.name
+            ports = [
+                port
+                for port in ports
+                if self.port_timelines.get(name + port.name) == timeline
+            ]
+        if reverse:
+            ports = reversed(ports)
+        yield from ports
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
@@ -99,13 +125,9 @@ class ComponentBlock(SvgBlock):
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the conduits.
+            reverse: Reverse the order of the conduits.
         """
-        ports = self._ports_per_operator[operator]
-        if reverse:
-            ports = reversed(ports)
-        for port in ports:
-            # TODO: filter on timeline
+        for port in self._ports_iter(operator, timeline, reverse):
             yield from self.conduits_per_port.get(port.name, [])
 
     def ports_per_operator(
@@ -119,13 +141,9 @@ class ComponentBlock(SvgBlock):
         Args:
             operator: Operator to filter on.
             timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reversed: Reverse the order of the ports.
+            reverse: Reverse the order of the ports.
         """
-        ports = self._ports_per_operator[operator]
-        if reverse:
-            ports = reversed(ports)
-        for port in ports:
-            # TODO: filter on timeline
+        for port in self._ports_iter(operator, timeline, reverse):
             yield self.component.name + port.name
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
@@ -166,7 +184,8 @@ class ComponentBlock(SvgBlock):
         if self.component.ports[port].operator in (Operator.F_INIT, Operator.O_F):
             return self.port_positions[port]
         # Relative to subtimeline:
-        return (self.port_positions[port][0] - self.component_x, 0)
+        x, y = self.port_positions[port]
+        return (x - self._port_segment_x[port], y - self._subtimeline_y)
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
@@ -195,21 +214,52 @@ class ComponentBlock(SvgBlock):
                 self.port_positions[port.name] = (self.x + x, self.y + y)
                 y += settings.port_margin
 
-        # TODO: position o_i/s ports correctly for multiple sub-timelines
-        for timeline in self.subtimelines:
-            oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
-            x0 = self.component_x + oi_offset
-            for i, port in enumerate(self.o_i_ports):
-                x = x0 + (i + 0.5) * settings.port_margin
-                self.port_positions[port.name] = (x, self.y + self.height)
+        segment_bounds = self._segment_bounds()
+        self._subtimeline_y = self.y + self.height
+        for i, timeline in enumerate(self.subtimelines):
+            self._place_subtimeline(i, timeline, segment_bounds)
 
-            x0 = self.component_x + self.component_width + s_offset
-            for i, port in enumerate(self.s_ports):
-                x = x0 + (i + 0.5) * settings.port_margin
-                self.port_positions[port.name] = (x, self.y + self.height)
+    def _segment_bounds(self) -> list[float]:
+        """x-boundaries of each subtimeline's segment: segment i spans [bounds[i],
+        bounds[i + 1]), packed left to right by each subtimeline's own width. Leftover
+        width goes after the last segment."""
+        bounds = [self.component_x]
+        for timeline in self.subtimelines[:-1]:
+            bounds.append(bounds[-1] + timeline.width)
+        bounds.append(self.component_x + self.component_width)
+        return bounds
 
-            # Move subtimeline
-            timeline.moveto(self.component_x, self.y + self.height)
+    def _place_subtimeline(
+        self,
+        i: int,
+        timeline: "TimelineBlock",
+        segment_bounds: list[float],
+    ) -> None:
+        """Position `timeline`'s O_I/S ports (right below the component) and move it
+        into its segment."""
+        seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
+        oi_ports = list(
+            self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
+        )
+        s_ports = list(
+            self._ports_iter(Operator.S, timeline.node.timeline, reverse=False)
+        )
+
+        oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
+        x0 = seg_x + oi_offset
+        for j, port in enumerate(oi_ports):
+            x = x0 + (j + 0.5) * settings.port_margin
+            self.port_positions[port.name] = (x, self._subtimeline_y)
+            self._port_segment_x[port.name] = seg_x
+
+        x0 = seg_right + s_offset
+        for j, port in enumerate(s_ports):
+            x = x0 + (j + 0.5) * settings.port_margin
+            self.port_positions[port.name] = (x, self._subtimeline_y)
+            self._port_segment_x[port.name] = seg_x
+
+        # Move subtimeline
+        timeline.moveto(seg_x, self._subtimeline_y)
 
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""

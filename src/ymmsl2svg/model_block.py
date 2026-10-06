@@ -51,11 +51,15 @@ class ModelBlock(SvgBlock):
         self.timeline_block.route_conduits()
         self.calc_layout()
 
-        # Get indices of our O_F ports so we can draw them in to_svg()
+        # Get indices of our O_F ports so we can draw them in to_svg(). Routing
+        # groups these by receiver (see TopConduitDuct._route_to_sibling_or_parent),
+        # so use the same key here.
         tcd = self.timeline_block.top_conduit_duct
         for port in self.o_f_ports:
             for conduit in self.conduits_per_port[port.name]:
-                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
+                self.port_indices[port.name] = tcd.add_virtual_port(
+                    conduit, left=False, key=conduit.receiver
+                )
         # We currently don't support drawing model S or O_I ports:
         if self.s_ports or self.o_i_ports:
             logger.warning(
@@ -129,6 +133,14 @@ class ModelBlock(SvgBlock):
             return -1 if k1 < k2 else 1
         return -1 if len(conduits1) < len(conduits2) else 1
 
+    def _earliest_sender(self, conduits: list[Conduit]) -> Conduit:
+        """Pick the conduit whose sender is earliest in the layout, to represent a port
+        fed by more than one conduit (convergecast) when sorting F_INIT/S ports."""
+        return min(
+            conduits,
+            key=lambda c: self.component_sort_keys.get(c.sending_component(), ()),
+        )
+
     def _input_cmp(self, conduits1: list[Conduit], conduits2: list[Conduit]) -> int:
         """Comparison function for sorting F_INIT and S ports."""
         # NOTE: F_INIT is sorted top->bottom, S left->right
@@ -137,16 +149,18 @@ class ModelBlock(SvgBlock):
             return 0 if not conduits2 else 1
         if not conduits2:
             return -1
-        # Input ports may have only one conduit:
-        assert len(conduits1) == len(conduits2) == 1
-        component1 = self.component_sort_keys.get(conduits1[0].sending_component(), ())
-        component2 = self.component_sort_keys.get(conduits2[0].sending_component(), ())
+        # A port may be fed by more than one conduit (convergecast); represent it by
+        # its earliest sender.
+        conduit1 = self._earliest_sender(conduits1)
+        conduit2 = self._earliest_sender(conduits2)
+        component1 = self.component_sort_keys.get(conduit1.sending_component(), ())
+        component2 = self.component_sort_keys.get(conduit2.sending_component(), ())
         if component1 == component2:
-            comp = self.components.get(conduits1[0].sending_component(), self)
-            port1 = conduits1[0].sending_port()
-            port2 = conduits2[0].sending_port()
+            comp = self.components.get(conduit1.sending_component(), self)
+            port1 = conduit1.sending_port()
+            port2 = conduit2.sending_port()
             return comp.cmp_ports(port1, port2)
-        destination = self.component_sort_keys[conduits1[0].receiving_component()]
+        destination = self.component_sort_keys[conduit1.receiving_component()]
         parent = destination[:-1]
         # Conduits coming from our parent component are always first
         if component1 == parent:
@@ -165,6 +179,9 @@ class ModelBlock(SvgBlock):
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
+        self.timeline_block.calc_layout()
+        # Second pass, to line up components at the same nesting depth
+        self.timeline_block.align_nesting_levels()
         self.timeline_block.calc_layout()
         self.width = self.timeline_block.width + 4 * settings.port_margin
         self.height = self.timeline_block.height + 4 * settings.port_margin
@@ -185,18 +202,21 @@ class ModelBlock(SvgBlock):
         )
         group.elements.append(model_block)
         # Draw ports
+        tcd = self.timeline_block.top_conduit_duct
         for portname, idx in self.port_indices.items():
             port = self.model.ports[portname]
             title = svg.Title(text=str(port.name))
-            if port.operator == Operator.F_INIT:
+            # Line up with the root timeline's virtual port (the timeline_block is
+            # offset by 2 * pm, see calc_layout)
+            left = port.operator == Operator.F_INIT
+            y = 2 * pm + tcd.vport_y(left, idx)
+            if left:
                 useid = "#port-f_init"
                 x = pm - settings.port_size
-                y = (2.5 + idx) * pm
                 path: list[svg.PathData] = [svg.M(pm, y), svg.h(pm)]
-            elif port.operator == Operator.O_F:
+            else:
                 useid = "#port-o_f"
                 x = self.width - pm + settings.port_size
-                y = (2.5 + idx) * pm
                 path: list[svg.PathData] = [svg.M(self.width - pm, y), svg.h(-pm)]
             use = svg.Use(href=useid, x=x, y=y, elements=[title])
             group.elements.append(use)
