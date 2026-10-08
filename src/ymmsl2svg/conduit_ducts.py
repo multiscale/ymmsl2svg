@@ -976,6 +976,7 @@ class ConduitDuct(SvgBlock):
         width += self.vlanes_in.set_pos(offset + width, lane_width)
         self.width = width
 
-        # Only for debug visualization, our conduits can extend below. Set to the
-        # height of the components in the row by TimelineBlock.calc_layout.
-        self.height = 0
+        # Only for debug visualization, our conduits can extend below. A timeline
+        # without components has nothing next to its duct.
+        has_components = bool(self.top_conduit_duct.tlblock.components)
+        self.height = settings.component_height if has_components else 0

@@ -294,9 +294,6 @@ class TimelineBlock(SvgBlock):
 
         self.width = width
         self.top_conduit_duct.width = self.width
-        components_height = self.components_height()
-        for duct in self.conduit_ducts:
-            duct.height = components_height
         # Each component's subtimelines sit below it, after its subtimeline_gap
         self.height = self.top_conduit_duct.height + max(
             (
