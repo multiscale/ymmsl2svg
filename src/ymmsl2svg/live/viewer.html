@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yMMSL viewer</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #d0d7de;
+    --ok: #1a7f37;
+    --bad: #cf222e;
+    --error-bg: #ffebe9;
+    --warn-bg: #fff8c5;
+    --warn-border: #d4a72c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161b22;
+      --panel: #0d1117;
+      --text: #e6edf3;
+      --muted: #8d96a0;
+      --border: #30363d;
+      --ok: #3fb950;
+      --bad: #f85149;
+      --error-bg: #3c1618;
+      --warn-bg: #3a2d0c;
+      --warn-border: #9e6a03;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 system-ui, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  #file { font-weight: 600; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 12px; }
+  #connection::before { content: "● "; }
+  #connection.live { color: var(--ok); }
+  #connection.down { color: var(--bad); }
+  .spacer { flex: 1; }
+  button {
+    font: inherit;
+    padding: 2px 10px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .zoom-controls { display: flex; align-items: center; gap: 4px; }
+  #zoom-level {
+    min-width: 4.5em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .banner {
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid;
+    white-space: pre-wrap;
+    font: 13px/1.4 ui-monospace, monospace;
+    max-height: 30vh;
+    overflow: auto;
+  }
+  #error { background: var(--error-bg); border-color: var(--bad); }
+  #warnings { background: var(--warn-bg); border-color: var(--warn-border); }
+  #stage {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+  }
+  #stage.dragging { cursor: grabbing; }
+  #diagram {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+    padding: 12px;
+    background: #fff;  /* The SVG's own colours assume a light background */
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+  #diagram.stale { opacity: 0.5; }
+  #placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<header>
+  <span id="file">yMMSL viewer</span>
+  <span id="connection" class="meta down">connecting</span>
+  <span id="updated" class="meta"></span>
+  <span class="spacer"></span>
+  <div class="zoom-controls">
+    <button id="zoom-out" type="button" title="Zoom out (−)" aria-label="Zoom out">−</button>
+    <span id="zoom-level" class="meta">100%</span>
+    <button id="zoom-in" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    <button id="fit" type="button"
+      title="Show the whole diagram (0, or double-click the diagram)">Fit to window</button>
+  </div>
+</header>
+<pre id="error" class="banner" hidden></pre>
+<pre id="warnings" class="banner" hidden></pre>
+<main id="stage">
+  <div id="placeholder">Waiting for the first render…</div>
+  <div id="diagram" hidden></div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const stage = $("stage");
+const diagram = $("diagram");
+// Shadow DOM keeps the SVG's embedded <style> from leaking into the page
+const shadow = diagram.attachShadow({ mode: "open" });
+
+// Pan/zoom state, kept across updates so a save doesn't reset the view
+let view = { x: 0, y: 0, k: 1 };
+let hasDiagram = false;
+
+function applyView() {
+  diagram.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.k})`;
+  $("zoom-level").textContent = `${Math.round(view.k * 100)}%`;
+}
+
+// Zoom to scale k, keeping the point (cx, cy) of the stage in place
+function zoomTo(k, cx, cy) {
+  k = Math.min(20, Math.max(0.05, k));
+  view.x = cx - (cx - view.x) * (k / view.k);
+  view.y = cy - (cy - view.y) * (k / view.k);
+  view.k = k;
+  applyView();
+}
+
+// Zoom buttons and keys zoom around the middle of the stage
+const ZOOM_STEP = 1.25;
+const zoomCentered = (factor) =>
+  zoomTo(view.k * factor, stage.clientWidth / 2, stage.clientHeight / 2);
+
+function fit() {
+  const w = diagram.offsetWidth, h = diagram.offsetHeight;
+  if (!w || !h) return;
+  const margin = 24;
+  const k = Math.min(
+    2,
+    (stage.clientWidth - 2 * margin) / w,
+    (stage.clientHeight - 2 * margin) / h,
+  );
+  view.k = Math.max(k, 0.05);
+  view.x = (stage.clientWidth - w * view.k) / 2;
+  view.y = (stage.clientHeight - h * view.k) / 2;
+  applyView();
+}
+
+stage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect = stage.getBoundingClientRect();
+  zoomTo(
+    view.k * Math.exp(-e.deltaY * 0.0015),
+    e.clientX - rect.left,
+    e.clientY - rect.top,
+  );
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+  stage.setPointerCapture(e.pointerId);
+  stage.classList.add("dragging");
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  view.x = e.clientX - drag.x;
+  view.y = e.clientY - drag.y;
+  applyView();
+});
+const endDrag = () => { drag = null; stage.classList.remove("dragging"); };
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", endDrag);
+stage.addEventListener("dblclick", fit);
+$("fit").addEventListener("click", fit);
+$("zoom-in").addEventListener("click", () => zoomCentered(ZOOM_STEP));
+$("zoom-out").addEventListener("click", () => zoomCentered(1 / ZOOM_STEP));
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;  // Leave browser zoom alone
+  if (e.key === "+" || e.key === "=") zoomCentered(ZOOM_STEP);
+  else if (e.key === "-") zoomCentered(1 / ZOOM_STEP);
+  else if (e.key === "0") fit();
+});
+
+function show(state) {
+  const name = state.file.split("/").pop();
+  $("file").textContent = state.file;
+  $("file").title = state.file;
+  document.title = `${state.ok ? "" : "✗ "}${name} — yMMSL viewer`;
+  $("updated").textContent = `updated ${state.updated.replace("T", " ")}`;
+
+  $("error").hidden = state.ok;
+  $("error").textContent = state.error || "";
+  $("warnings").hidden = !state.warnings.length;
+  $("warnings").textContent = state.warnings.map((w) => `⚠ ${w}`).join("\n");
+
+  if (state.svg) {
+    shadow.innerHTML = state.svg;
+    diagram.hidden = false;
+    $("placeholder").hidden = true;
+    if (!hasDiagram) {
+      hasDiagram = true;
+      fit();
+    }
+  }
+  // On errors the server sends the last good diagram: show it faded
+  diagram.classList.toggle("stale", !state.ok);
+  if (!state.svg) {
+    $("placeholder").textContent = "No diagram yet: fix the error above and save.";
+  }
+}
+
+const events = new EventSource("events");
+events.onopen = () => {
+  $("connection").textContent = "live";
+  $("connection").className = "meta live";
+};
+events.onerror = () => {
+  $("connection").textContent = "disconnected, retrying…";
+  $("connection").className = "meta down";
+};
+events.onmessage = (e) => show(JSON.parse(e.data));
+</script>
+</body>
+</html>
