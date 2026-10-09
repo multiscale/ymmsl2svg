@@ -35,6 +35,7 @@ homepage = "https://github.com/multiscale/ymmsl2svg"
 
 [project.scripts]
 ymmsl2svg = "ymmsl2svg.cli:main"
+ymmsl2svg-live = "ymmsl2svg.live.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
