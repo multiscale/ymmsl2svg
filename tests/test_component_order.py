@@ -1,6 +1,7 @@
 import itertools
 from pathlib import Path
 
+import pytest
 import ymmsl
 from ymmsl.v0_2 import Configuration
 
@@ -20,6 +21,9 @@ def test_dispatch3_order():
         assert [comp.name for comp in rootnode.components] == expected
 
 
+@pytest.mark.xfail(
+    raises=NotImplementedError, strict=True, reason="Matching timelines not supported"
+)
 def test_timeline_bridge_order():
     fname = Path(__file__).parent / "configurations" / "timescale-bridge.ymmsl"
     configuration = ymmsl.load_as(Configuration, fname)

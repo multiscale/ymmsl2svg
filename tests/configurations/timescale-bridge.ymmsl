@@ -22,6 +22,9 @@ models:
           timeline B:
             o_i: b_out
             s: b_in
+    matching_timelines:
+      A: bridge.A
+      B: bridge.B
     conduits:
       A.output: bridge.a_in
       bridge.a_out: A.input
