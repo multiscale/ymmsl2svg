@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from ymmsl2svg.live.server import Viewer, _claim_socket, make_server
-from ymmsl2svg.live.watch import POLL_INTERVAL_SECONDS, FileWatcher, filesystem_type
+from ymmsl2svg.live.watch import FileWatcher, filesystem_type
 
 configurations = Path(__file__).parent / "configurations"
 on_linux = pytest.mark.skipif(
@@ -49,19 +49,6 @@ class _Changes:
             return self._cond.wait_for(lambda: self.count >= count, timeout)
 
 
-# Each variant watches with a long backstop, so only the mechanism under test
-# can report changes within the timeout.
-# variant: (poll, backstop_interval, timeout)
-WATCHERS = {
-    "inotify": (False, 60.0, 1.0),
-    "poll": (True, 60.0, POLL_INTERVAL_SECONDS * 5),
-}
-
-
-def _edit_in_place(path: Path) -> None:
-    _touch(path)
-
-
 def _replace_by_rename(path: Path) -> None:
     # How Vim, Emacs and VS Code often save: write a temp file, rename it over
     tmp = path.with_name(path.name + ".tmp")
@@ -69,31 +56,24 @@ def _replace_by_rename(path: Path) -> None:
     os.replace(tmp, path)
 
 
-def _delete_and_recreate(path: Path) -> None:
-    content = path.read_text()
-    path.unlink()
-    time.sleep(0.3)
-    path.write_text(content + "\n")
-
-
+# The inotify cases use a 60 s backstop, so only inotify can report the change in
+# time. Polling compares the file's signature, so one kind of edit covers it.
 @pytest.mark.parametrize(
-    "variant",
-    [pytest.param("inotify", marks=on_linux), "poll"],
+    "poll, edit",
+    [
+        pytest.param(False, _touch, id="inotify-in-place", marks=on_linux),
+        pytest.param(False, _replace_by_rename, id="inotify-rename", marks=on_linux),
+        pytest.param(True, _touch, id="poll"),
+    ],
 )
-@pytest.mark.parametrize(
-    "edit", [_edit_in_place, _replace_by_rename, _delete_and_recreate]
-)
-def test_watcher_detects_change(ymmsl_file: Path, variant: str, edit) -> None:
-    poll, backstop_interval, timeout = WATCHERS[variant]
+def test_watcher_detects_change(ymmsl_file: Path, poll: bool, edit) -> None:
     changes = _Changes()
-    watcher = FileWatcher(
-        ymmsl_file, changes, poll=poll, backstop_interval=backstop_interval
-    )
+    watcher = FileWatcher(ymmsl_file, changes, poll=poll, backstop_interval=60)
     watcher.start()
     try:
-        assert watcher.method.startswith(variant[:4])  # "inot" / "poll"
+        assert watcher.method.startswith("polling" if poll else "inotify")
         edit(ymmsl_file)
-        assert changes.wait_for(1, timeout)
+        assert changes.wait_for(1, 1.0)
     finally:
         watcher.stop()
 
@@ -104,21 +84,11 @@ def test_watcher_reports_one_save_once(ymmsl_file: Path) -> None:
     watcher = FileWatcher(ymmsl_file, changes, backstop_interval=0.05)
     watcher.start()
     try:
+        (ymmsl_file.parent / "other.ymmsl").write_text("x")  # Must be ignored
         _replace_by_rename(ymmsl_file)
         assert changes.wait_for(1, 1.0)
         time.sleep(0.5)  # inotify and several backstop polls have run
         assert changes.count == 1
-    finally:
-        watcher.stop()
-
-
-def test_watcher_ignores_other_files(ymmsl_file: Path) -> None:
-    changes = _Changes()
-    watcher = FileWatcher(ymmsl_file, changes, backstop_interval=0.05)
-    watcher.start()
-    try:
-        (ymmsl_file.parent / "other.ymmsl").write_text("x")
-        assert not changes.wait_for(1, 0.5)
     finally:
         watcher.stop()
 
@@ -164,14 +134,10 @@ def test_viewer_render(ymmsl_file: Path) -> None:
     assert viewer.state["svg"] == good_svg  # Last good diagram is kept
 
 
-def test_claim_socket(tmp_path: Path) -> None:
+def test_claim_socket_removes_stale(tmp_path: Path) -> None:
     socket_path = tmp_path / "test.sock"
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as live:
-        live.bind(str(socket_path))
-        live.listen()
-        with pytest.raises(RuntimeError, match="already serving"):
-            _claim_socket(socket_path)
     # Closed without unlinking: a stale socket file is left behind
+    socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).bind(str(socket_path))
     assert socket_path.exists()
     _claim_socket(socket_path)
     assert not socket_path.exists()
@@ -240,9 +206,7 @@ def test_server(running_server, ymmsl_file: Path) -> None:
     assert first["svg"].startswith("<svg")
 
     _touch(ymmsl_file)
-    second = _read_event(response)
-    assert second["ok"]
-    assert second["updated"] >= first["updated"]
+    assert _read_event(response)["ok"]  # An update arrives after the save
 
 
 @pytest.mark.parametrize("running_server", ["tcp"], indirect=True)

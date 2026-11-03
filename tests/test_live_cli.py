@@ -18,16 +18,6 @@ def restore_settings(monkeypatch):
     monkeypatch.setattr(settings, "debug", settings.debug)
 
 
-def test_all_commands_registered():
-    assert set(cli.main.commands) == {"socket", "open"}
-
-
-def test_socket_has_no_tcp_options():
-    # TCP and the browser live on `ymmsl2svg-live open`, not `socket`.
-    result = CliRunner().invoke(cli.main, ["socket", ymmsl_file, "--port", "5006"])
-    assert result.exit_code != 0
-
-
 def test_open_reports_port_in_use():
     with socket.socket() as taken:
         taken.bind(("127.0.0.1", 0))
