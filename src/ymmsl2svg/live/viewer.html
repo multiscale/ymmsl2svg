@@ -213,7 +213,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 function show(state) {
-  const name = state.file.split("/").pop();
+  const name = state.file.split(/[\\/]/).pop();  // POSIX or Windows path
   $("file").textContent = state.file;
   $("file").title = state.file;
   document.title = `${state.ok ? "" : "✗ "}${name} — yMMSL viewer`;

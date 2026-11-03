@@ -19,8 +19,10 @@ def default_tcp_port() -> int:
     Below the Linux ephemeral range (32768+) to avoid collisions with
     short-lived connections, and per-user so two people on the same node
     don't clash. NB a loopback TCP port is connectable by other users on the
-    same node.
+    same node. Windows has no uids; there a fixed port is used.
     """
+    if not hasattr(os, "getuid"):
+        return 10000
     return 10000 + os.getuid() % 10000
 
 
@@ -69,7 +71,8 @@ def main() -> None:
 @click.option(
     "--poll",
     is_flag=True,
-    help="Only poll the file for changes, don't use inotify.",
+    help="Poll the file for changes instead of using file notifications, e.g. "
+    "on network drives where changes from other machines aren't noticed.",
 )
 @click.option("-d", "--debug", is_flag=True, help="Enable debug visualizations.")
 def open_(
