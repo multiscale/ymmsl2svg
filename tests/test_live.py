@@ -2,7 +2,6 @@ import http.client
 import json
 import os
 import shutil
-import socket
 import sys
 import threading
 import time
@@ -10,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from ymmsl2svg.live.server import Viewer, _claim_socket, make_server
+from ymmsl2svg.live.server import Viewer, make_server
 from ymmsl2svg.live.watch import FileWatcher, filesystem_type
 
 configurations = Path(__file__).parent / "configurations"
@@ -134,26 +133,6 @@ def test_viewer_render(ymmsl_file: Path) -> None:
     assert viewer.state["svg"] == good_svg  # Last good diagram is kept
 
 
-def test_claim_socket_removes_stale(tmp_path: Path) -> None:
-    socket_path = tmp_path / "test.sock"
-    # Closed without unlinking: a stale socket file is left behind
-    socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).bind(str(socket_path))
-    assert socket_path.exists()
-    _claim_socket(socket_path)
-    assert not socket_path.exists()
-
-
-class _UnixHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, socket_path: Path) -> None:
-        super().__init__("localhost", timeout=5)
-        self.socket_path = socket_path
-
-    def connect(self) -> None:
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(self.timeout)
-        self.sock.connect(str(self.socket_path))
-
-
 def _read_event(response: http.client.HTTPResponse) -> dict:
     while True:
         line = response.fp.readline().decode()
@@ -162,41 +141,27 @@ def _read_event(response: http.client.HTTPResponse) -> dict:
 
 
 @pytest.fixture
-def running_server(ymmsl_file: Path, tmp_path: Path, request):
+def connect(ymmsl_file: Path):
     """Start a viewer + server; yields a function creating a connection."""
     viewer = Viewer(ymmsl_file)
-    if request.param == "tcp":
-        server = make_server(viewer, tcp_port=0)
-        port = server.socket.getsockname()[1]
-
-        def connect():
-            return http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-
-    else:
-        socket_path = tmp_path / "viewer.sock"
-        server = make_server(viewer, socket_path=socket_path)
-        assert socket_path.stat().st_mode & 0o777 == 0o600
-
-        def connect():
-            return _UnixHTTPConnection(socket_path)
-
+    server = make_server(viewer, tcp_port=0)
+    port = server.socket.getsockname()[1]
     viewer.start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield connect
+    yield lambda: http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     viewer.stop()
     server.shutdown()
     server.server_close()
 
 
-@pytest.mark.parametrize("running_server", ["tcp", "unix"], indirect=True)
-def test_server(running_server, ymmsl_file: Path) -> None:
-    conn = running_server()
+def test_server(connect, ymmsl_file: Path) -> None:
+    conn = connect()
     conn.request("GET", "/")
     response = conn.getresponse()
     assert response.status == 200
     assert b"EventSource" in response.read()
 
-    conn = running_server()
+    conn = connect()
     conn.request("GET", "/events")
     response = conn.getresponse()
     assert response.status == 200
@@ -209,8 +174,7 @@ def test_server(running_server, ymmsl_file: Path) -> None:
     assert _read_event(response)["ok"]  # An update arrives after the save
 
 
-@pytest.mark.parametrize("running_server", ["tcp"], indirect=True)
-def test_server_rejects_foreign_host(running_server) -> None:
-    conn = running_server()
+def test_server_rejects_foreign_host(connect) -> None:
+    conn = connect()
     conn.request("GET", "/", headers={"Host": "evil.example:1234"})
     assert conn.getresponse().status == 403

@@ -6,23 +6,12 @@ Serves two routes:
 * ``/events``: a Server-Sent Events stream with the rendered SVG (or the
   error) of the watched file, pushed on every change.
 
-The server listens on a per-user unix socket (``~/.ymmsl2svg.sock``, mode
-0600, which on a shared login node restricts access to the owning user) and
-is reached through an SSH forward, e.g. in ``~/.ssh/config``::
-
-    LocalForward 127.0.0.1:4334 /home/%r/.ymmsl2svg.sock
-
-(``%r`` expands to the remote username, so one line serves every user.)
-Alternatively it serves on a loopback TCP port, for use on the machine itself.
+The server listens on a loopback TCP port, so only this machine can connect.
 """
 
 import json
 import logging
-import os
 import queue
-import signal
-import socket
-import socketserver
 import threading
 import webbrowser
 from datetime import datetime
@@ -127,7 +116,7 @@ class Viewer:
 class _Handler(BaseHTTPRequestHandler):
     """HTTP handler for the viewer page and its event stream."""
 
-    server: "_TCPServer | _UnixServer"
+    server: "_TCPServer"
 
     def do_GET(self) -> None:
         host = self.headers.get("Host", "").rsplit(":", 1)[0]
@@ -172,12 +161,6 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             viewer.unsubscribe(updates)
 
-    def address_string(self) -> str:
-        # Unix socket peers have no (host, port) address
-        if isinstance(self.client_address, tuple):
-            return str(self.client_address[0])
-        return "unix-socket"
-
     def log_message(self, format: str, *args: Any) -> None:
         logger.debug("%s %s", self.address_string(), format % args)
 
@@ -190,53 +173,8 @@ class _TCPServer(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), _Handler)
 
 
-class _UnixServer(socketserver.ThreadingUnixStreamServer):
-    daemon_threads = True
-
-    def __init__(self, socket_path: Path, viewer: Viewer) -> None:
-        self.viewer = viewer
-        self.socket_path = socket_path
-        super().__init__(str(socket_path), _Handler)
-
-    def server_bind(self) -> None:
-        super().server_bind()
-        os.chmod(self.socket_path, 0o600)
-
-
-def _socket_alive(socket_path: Path) -> bool:
-    """True if something is already accepting connections on the socket."""
-    if not socket_path.exists():
-        return False
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-        try:
-            probe.connect(str(socket_path))
-            return True
-        except OSError:
-            return False
-
-
-def _claim_socket(socket_path: Path) -> None:
-    """Remove a stale socket, or fail if a live server owns it."""
-    if _socket_alive(socket_path):
-        raise RuntimeError(f"ymmsl2svg-live is already serving on {socket_path}")
-    socket_path.unlink(missing_ok=True)
-
-
-def make_server(
-    viewer: Viewer, socket_path: Path | None = None, tcp_port: int | None = None
-) -> socketserver.TCPServer:
-    """Create (but don't start) the server, on a unix socket or a TCP port."""
-    if socket_path is not None:
-        _claim_socket(socket_path)
-        socket_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            return _UnixServer(socket_path, viewer)
-        except OSError as exc:
-            raise RuntimeError(
-                f"Cannot serve on unix socket {socket_path}: {exc}. "
-                "Pick another one with --socket (at most ~100 characters)."
-            ) from exc
-    assert tcp_port is not None
+def make_server(viewer: Viewer, tcp_port: int) -> _TCPServer:
+    """Create (but don't start) the server on a loopback TCP port."""
     try:
         return _TCPServer(tcp_port, viewer)
     except OSError as exc:
@@ -246,47 +184,23 @@ def make_server(
         ) from exc
 
 
-def serve(
-    ymmsl_file: Path,
-    socket_path: Path | None = None,
-    local_port: int | None = None,
-    tcp_port: int | None = None,
-    open_browser: bool = False,
-    poll: bool = False,
-) -> None:
+def serve(ymmsl_file: Path, tcp_port: int, open_browser: bool, poll: bool) -> None:
     """Run the live viewer server (blocking).
 
     Args:
         ymmsl_file: The yMMSL file to watch and render.
-        socket_path: Unix socket to serve on (mode 0600). Either this or
-            tcp_port must be given.
-        local_port: Port the SSH forward uses; logged as the URL the socket
-            is reachable at. Socket-only.
-        tcp_port: Loopback TCP port to serve on, when not serving on a socket.
-        open_browser: Open a browser at the TCP URL once serving (for a
-            desktop session running on the machine itself). TCP-only.
+        tcp_port: Loopback TCP port to serve on.
+        open_browser: Open a browser at the URL once serving.
         poll: Only poll the file for changes, don't use inotify.
     """
     viewer = Viewer(ymmsl_file, poll=poll)
-    server = make_server(viewer, socket_path, tcp_port)
+    server = make_server(viewer, tcp_port)
     viewer.start()
-
-    if socket_path is not None:
-        logger.info("Serving on unix socket %s", socket_path)
-        if local_port:
-            logger.info(
-                "→ reachable at http://localhost:%d/ (via your SSH LocalForward)",
-                local_port,
-            )
-    else:
-        logger.info("Serving at http://localhost:%d/", tcp_port)
-        if open_browser:
-            webbrowser.open(f"http://localhost:{tcp_port}/")
+    logger.info("Serving at http://localhost:%d/", tcp_port)
+    if open_browser:
+        webbrowser.open(f"http://localhost:{tcp_port}/")
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    # Also shut down cleanly (removing the socket) on kill or SSH disconnect
-    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(signum, signal.default_int_handler)
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
@@ -295,5 +209,3 @@ def serve(
         viewer.stop()
         server.shutdown()
         server.server_close()
-        if socket_path is not None:
-            socket_path.unlink(missing_ok=True)

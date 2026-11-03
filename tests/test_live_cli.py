@@ -29,17 +29,3 @@ def test_open_reports_port_in_use():
     # A clean one-line error, not a traceback
     assert result.exit_code == 1
     assert f"Error: Cannot serve on port {port}" in result.output
-
-
-def test_socket_reports_live_server(tmp_path):
-    socket_path = tmp_path / "live.sock"
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as live:
-        live.bind(str(socket_path))
-        live.listen()
-        result = CliRunner().invoke(
-            cli.main, ["socket", ymmsl_file, "--socket", str(socket_path)]
-        )
-    assert result.exit_code == 1
-    assert f"Error: ymmsl2svg-live is already serving on {socket_path}" in (
-        result.output
-    )
