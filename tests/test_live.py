@@ -2,7 +2,6 @@ import http.client
 import json
 import os
 import shutil
-import sys
 import threading
 import time
 from pathlib import Path
@@ -10,12 +9,9 @@ from pathlib import Path
 import pytest
 
 from ymmsl2svg.live.server import Viewer, make_server
-from ymmsl2svg.live.watch import FileWatcher, filesystem_type
+from ymmsl2svg.live.watch import FileWatcher
 
 configurations = Path(__file__).parent / "configurations"
-on_linux = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="inotify is Linux-only"
-)
 
 
 @pytest.fixture
@@ -26,7 +22,7 @@ def ymmsl_file(tmp_path: Path) -> Path:
 
 
 def _touch(path: Path) -> None:
-    """Change the file's content (and thereby its signature)."""
+    """Change the file's content."""
     with path.open("a") as f:
         f.write("\n")
 
@@ -55,66 +51,40 @@ def _replace_by_rename(path: Path) -> None:
     os.replace(tmp, path)
 
 
-# The inotify cases use a 60 s backstop, so only inotify can report the change in
-# time. Polling compares the file's signature, so one kind of edit covers it.
+def _start_watcher(path: Path, changes: _Changes, poll: bool = False) -> FileWatcher:
+    watcher = FileWatcher(path, changes, poll=poll)
+    watcher.start()
+    time.sleep(0.3)  # watchfiles sets up its watch in the background
+    return watcher
+
+
 @pytest.mark.parametrize(
     "poll, edit",
     [
-        pytest.param(False, _touch, id="inotify-in-place", marks=on_linux),
-        pytest.param(False, _replace_by_rename, id="inotify-rename", marks=on_linux),
+        pytest.param(False, _touch, id="in-place"),
+        pytest.param(False, _replace_by_rename, id="rename"),
         pytest.param(True, _touch, id="poll"),
     ],
 )
 def test_watcher_detects_change(ymmsl_file: Path, poll: bool, edit) -> None:
     changes = _Changes()
-    watcher = FileWatcher(ymmsl_file, changes, poll=poll, backstop_interval=60)
-    watcher.start()
+    watcher = _start_watcher(ymmsl_file, changes, poll)
     try:
-        assert watcher.method.startswith("polling" if poll else "inotify")
         edit(ymmsl_file)
-        assert changes.wait_for(1, 1.0)
+        assert changes.wait_for(1, 2.0)
     finally:
         watcher.stop()
 
 
-@on_linux
 def test_watcher_reports_one_save_once(ymmsl_file: Path) -> None:
     changes = _Changes()
-    watcher = FileWatcher(ymmsl_file, changes, backstop_interval=0.05)
-    watcher.start()
+    watcher = _start_watcher(ymmsl_file, changes)
     try:
         (ymmsl_file.parent / "other.ymmsl").write_text("x")  # Must be ignored
         _replace_by_rename(ymmsl_file)
-        assert changes.wait_for(1, 1.0)
-        time.sleep(0.5)  # inotify and several backstop polls have run
+        assert changes.wait_for(1, 2.0)
+        time.sleep(0.5)
         assert changes.count == 1
-    finally:
-        watcher.stop()
-
-
-def test_filesystem_type(tmp_path: Path) -> None:
-    mounts = tmp_path / "mounts"
-    mounts.write_text(
-        "/dev/sdd / ext4 rw 0 0\n"
-        "C:\\134 /mnt/c 9p rw 0 0\n"
-        "server:/home /mnt/my\\040share nfs4 rw 0 0\n"
-    )
-    assert filesystem_type(Path("/home/user/x.ymmsl"), mounts) == "ext4"
-    assert filesystem_type(Path("/mnt/c/Users/x.ymmsl"), mounts) == "9p"
-    assert filesystem_type(Path("/mnt/my share/x.ymmsl"), mounts) == "nfs4"
-    assert filesystem_type(Path("/x"), tmp_path / "missing") is None
-
-
-@on_linux
-def test_remote_filesystem_polls_fast(ymmsl_file: Path, tmp_path: Path) -> None:
-    mounts = tmp_path / "mounts"
-    mounts.write_text(f"/dev/sdd / ext4 rw 0 0\nC: {ymmsl_file.parent} 9p rw 0 0\n")
-    changes = _Changes()
-    watcher = FileWatcher(ymmsl_file, changes, mounts=mounts, backstop_interval=60)
-    watcher.start()
-    try:
-        assert watcher.method.startswith("inotify + polling every 0.3 s")
-        assert "9p" in watcher.method
     finally:
         watcher.stop()
 
