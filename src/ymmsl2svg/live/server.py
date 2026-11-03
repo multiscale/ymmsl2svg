@@ -47,9 +47,9 @@ class _WarningCollector(logging.Handler):
 class Viewer:
     """Renders the watched yMMSL file and pushes the result to browsers."""
 
-    def __init__(self, ymmsl_file: Path, poll: bool = False) -> None:
+    def __init__(self, ymmsl_file: Path) -> None:
         self.ymmsl_file = ymmsl_file.absolute()
-        self.watcher = FileWatcher(self.ymmsl_file, self.render, poll=poll)
+        self.watcher = FileWatcher(self.ymmsl_file, self.render)
         self.state: dict[str, Any] = {}
         self._last_svg: str | None = None
         self._render_lock = threading.Lock()
@@ -184,16 +184,15 @@ def make_server(viewer: Viewer, tcp_port: int) -> _TCPServer:
         ) from exc
 
 
-def serve(ymmsl_file: Path, tcp_port: int, open_browser: bool, poll: bool) -> None:
+def serve(ymmsl_file: Path, tcp_port: int, open_browser: bool) -> None:
     """Run the live viewer server (blocking).
 
     Args:
         ymmsl_file: The yMMSL file to watch and render.
         tcp_port: Loopback TCP port to serve on.
         open_browser: Open a browser at the URL once serving.
-        poll: Only poll the file for changes, don't use inotify.
     """
-    viewer = Viewer(ymmsl_file, poll=poll)
+    viewer = Viewer(ymmsl_file)
     server = make_server(viewer, tcp_port)
     viewer.start()
     logger.info("Serving at http://localhost:%d/", tcp_port)

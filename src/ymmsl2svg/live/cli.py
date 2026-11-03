@@ -68,18 +68,11 @@ def main() -> None:
     show_default=True,
     help="Open a browser at the URL once serving.",
 )
-@click.option(
-    "--poll",
-    is_flag=True,
-    help="Poll the file for changes instead of using file notifications, e.g. "
-    "on network drives where changes from other machines aren't noticed.",
-)
 @click.option("-d", "--debug", is_flag=True, help="Enable debug visualizations.")
 def open_(
     ymmsl_file: Path,
     tcp_port: int | None,
     open_browser: bool,
-    poll: bool,
     debug: bool,
 ) -> None:
     """Serve on a local port and open a browser (blocking).
@@ -92,7 +85,6 @@ def open_(
         ymmsl_file=ymmsl_file,
         tcp_port=tcp_port or default_tcp_port(),
         open_browser=open_browser,
-        poll=poll,
     )
 
 

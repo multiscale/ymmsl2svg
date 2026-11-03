@@ -54,7 +54,7 @@ def _replace_by_rename(path: Path) -> None:
 def _start_watcher(path: Path, changes: _Changes, poll: bool = False) -> FileWatcher:
     watcher = FileWatcher(path, changes, poll=poll)
     watcher.start()
-    time.sleep(0.3)  # watchfiles sets up its watch in the background
+    time.sleep(1.0)  # watchfiles sets up its watch (or first poll) in the background
     return watcher
 
 
@@ -117,6 +117,7 @@ def connect(ymmsl_file: Path):
     server = make_server(viewer, tcp_port=0)
     port = server.socket.getsockname()[1]
     viewer.start()
+    time.sleep(1.0)  # watchfiles sets up its watch (or first poll) in the background
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield lambda: http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     viewer.stop()

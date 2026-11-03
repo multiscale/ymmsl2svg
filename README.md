@@ -52,7 +52,7 @@ uvx --from git+https://github.com/multiscale/ymmsl2svg.git ymmsl2svg --help
 every time you save the file, so you can edit yMMSL in your favourite text editor with
 a live preview next to it. If you save a file with errors, the error message appears
 above the last working diagram. If there is no working diagram yet, you see just the
-error until you fix it.
+error until you fix it. It works on Linux, macOS and Windows (including WSL).
 
 To use it on your own computer, run:
 
@@ -66,13 +66,8 @@ browser. Use `--no-open-browser` if you don't want a browser to open automatical
 that address is already in use, choose another number with `--port`, for example
 `--port 12345`.
 
-Other options:
-
-* `--poll`: check the file for changes by polling only, for example when changes are
-  not picked up automatically.
-* `--debug`: enable debug visualizations.
-
-Run `ymmsl2svg-live open --help` for all options.
+Use `--debug` to enable debug visualizations. Run `ymmsl2svg-live open --help` for all
+options.
 
 ## Roadmap
 

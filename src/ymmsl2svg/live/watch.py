@@ -1,9 +1,9 @@
 """Watch a yMMSL file for changes, using watchfiles.
 
 watchfiles uses the operating system's file notifications (inotify on Linux,
-FSEvents on macOS, ReadDirectoryChangesW on Windows), and polls instead on WSL,
-where notifications miss changes made from Windows. On network drives, changes
-made from other machines are only seen when polling (``poll=True``).
+FSEvents on macOS, ReadDirectoryChangesW on Windows), and decides by itself
+when to poll instead, e.g. on WSL, where notifications miss changes made from
+Windows. Polling can be forced with ``WATCHFILES_FORCE_POLLING=1``.
 
 The file's parent directory is watched rather than the file itself, so saves
 that replace the file (writing a temporary file and renaming it over the
@@ -23,19 +23,15 @@ logger = logging.getLogger(__name__)
 class FileWatcher:
     """Calls ``on_change`` whenever the watched file changes (or disappears)."""
 
-    def __init__(
-        self, path: Path, on_change: Callable[[], None], poll: bool = False
-    ) -> None:
+    def __init__(self, path: Path, on_change: Callable[[], None]) -> None:
         """Create the watcher; call :meth:`start` to begin watching.
 
         Args:
             path: The file to watch.
             on_change: Called from a watcher thread after each change.
-            poll: Always poll for changes instead of using file notifications.
         """
         self.path = path.absolute()
         self.on_change = on_change
-        self._poll = poll
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name="ymmsl-watch", daemon=True
@@ -43,7 +39,7 @@ class FileWatcher:
 
     def start(self) -> None:
         """Start watching."""
-        logger.info("Watching %s%s", self.path, " (polling)" if self._poll else "")
+        logger.info("Watching %s", self.path)
         self._thread.start()
 
     def stop(self) -> None:
@@ -61,8 +57,6 @@ class FileWatcher:
             watch_filter=self._is_watched_file,
             stop_event=self._stop,
             recursive=False,
-            # None: watchfiles' default, which polls on WSL only
-            force_polling=True if self._poll else None,
         ):
             try:
                 self.on_change()
