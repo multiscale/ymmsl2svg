@@ -57,16 +57,15 @@ error until you fix it. It works on Linux, macOS and Windows (including WSL).
 To use it on your own computer, run:
 
 ```bash
-ymmsl2svg-live open workflow.ymmsl
+ymmsl2svg-live workflow.ymmsl
 ```
 
 This opens the viewer in your browser. If no browser opens (for example on WSL), copy
-the address printed in the terminal, such as `http://localhost:11000`, into your
-browser. Use `--no-open-browser` if you don't want a browser to open automatically. If
-that address is already in use, choose another number with `--port`, for example
-`--port 12345`.
+the address printed in the terminal, `http://localhost:8765`, into your browser. Use
+`--no-open-browser` if you don't want a browser to open automatically. If that address
+is already in use, choose another number with `--port`, for example `--port 12345`.
 
-Use `--debug` to enable debug visualizations. Run `ymmsl2svg-live open --help` for all
+Use `--debug` to enable debug visualizations. Run `ymmsl2svg-live --help` for all
 options.
 
 ## Roadmap

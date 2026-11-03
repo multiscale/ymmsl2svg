@@ -1,15 +1,20 @@
+"""Tests for the live viewer: watching and rendering, server and CLI."""
+
 import http.client
 import json
 import os
 import shutil
+import socket
 import threading
 import time
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
+from ymmsl2svg.live import cli
 from ymmsl2svg.live.server import Viewer, make_server
-from ymmsl2svg.live.watch import FileWatcher
+from ymmsl2svg.settings import settings
 
 configurations = Path(__file__).parent / "configurations"
 
@@ -27,23 +32,6 @@ def _touch(path: Path) -> None:
         f.write("\n")
 
 
-class _Changes:
-    """Collects watcher callbacks so tests can wait for them."""
-
-    def __init__(self) -> None:
-        self.count = 0
-        self._cond = threading.Condition()
-
-    def __call__(self) -> None:
-        with self._cond:
-            self.count += 1
-            self._cond.notify_all()
-
-    def wait_for(self, count: int, timeout: float) -> bool:
-        with self._cond:
-            return self._cond.wait_for(lambda: self.count >= count, timeout)
-
-
 def _replace_by_rename(path: Path) -> None:
     # How Vim, Emacs and VS Code often save: write a temp file, rename it over
     tmp = path.with_name(path.name + ".tmp")
@@ -51,46 +39,40 @@ def _replace_by_rename(path: Path) -> None:
     os.replace(tmp, path)
 
 
-def _start_watcher(path: Path, changes: _Changes, poll: bool = False) -> FileWatcher:
-    watcher = FileWatcher(path, changes, poll=poll)
-    watcher.start()
+@pytest.fixture
+def viewer(ymmsl_file: Path):
+    """A started viewer; yields a queue with its rendered states."""
+    viewer = Viewer(ymmsl_file)
+    viewer.start()
     time.sleep(1.0)  # watchfiles sets up its watch (or first poll) in the background
-    return watcher
+    updates = viewer.subscribe()
+    updates.get()  # The initial render
+    yield updates
+    viewer.stop()
 
 
 @pytest.mark.parametrize(
-    "poll, edit",
+    "edit",
     [
-        pytest.param(False, _touch, id="in-place"),
-        pytest.param(False, _replace_by_rename, id="rename"),
-        pytest.param(True, _touch, id="poll"),
+        pytest.param(_touch, id="in-place"),
+        pytest.param(_replace_by_rename, id="rename"),
     ],
 )
-def test_watcher_detects_change(ymmsl_file: Path, poll: bool, edit) -> None:
-    changes = _Changes()
-    watcher = _start_watcher(ymmsl_file, changes, poll)
-    try:
-        edit(ymmsl_file)
-        assert changes.wait_for(1, 2.0)
-    finally:
-        watcher.stop()
+def test_viewer_rerenders_on_save(viewer, ymmsl_file: Path, edit) -> None:
+    edit(ymmsl_file)
+    assert viewer.get(timeout=2.0)["ok"]
 
 
-def test_watcher_reports_one_save_once(ymmsl_file: Path) -> None:
-    changes = _Changes()
-    watcher = _start_watcher(ymmsl_file, changes)
-    try:
-        (ymmsl_file.parent / "other.ymmsl").write_text("x")  # Must be ignored
-        _replace_by_rename(ymmsl_file)
-        assert changes.wait_for(1, 2.0)
-        time.sleep(0.5)
-        assert changes.count == 1
-    finally:
-        watcher.stop()
+def test_viewer_rerenders_one_save_once(viewer, ymmsl_file: Path) -> None:
+    (ymmsl_file.parent / "other.ymmsl").write_text("x")  # Must be ignored
+    _replace_by_rename(ymmsl_file)
+    viewer.get(timeout=2.0)
+    time.sleep(0.5)
+    assert viewer.empty()
 
 
 def test_viewer_render(ymmsl_file: Path) -> None:
-    viewer = Viewer(ymmsl_file, poll=True)
+    viewer = Viewer(ymmsl_file)
     viewer.render()
     assert viewer.state["ok"]
     good_svg = viewer.state["svg"]
@@ -114,7 +96,7 @@ def _read_event(response: http.client.HTTPResponse) -> dict:
 def connect(ymmsl_file: Path):
     """Start a viewer + server; yields a function creating a connection."""
     viewer = Viewer(ymmsl_file)
-    server = make_server(viewer, tcp_port=0)
+    server = make_server(viewer, port=0)
     port = server.socket.getsockname()[1]
     viewer.start()
     time.sleep(1.0)  # watchfiles sets up its watch (or first poll) in the background
@@ -149,3 +131,19 @@ def test_server_rejects_foreign_host(connect) -> None:
     conn = connect()
     conn.request("GET", "/", headers={"Host": "evil.example:1234"})
     assert conn.getresponse().status == 403
+
+
+def test_cli_reports_port_in_use(ymmsl_file: Path, monkeypatch) -> None:
+    # The command sets the global settings.debug; restore it afterwards
+    monkeypatch.setattr(settings, "debug", settings.debug)
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        result = CliRunner().invoke(
+            cli.main,
+            [str(ymmsl_file), "--port", str(port), "--no-open-browser"],
+        )
+    # A clean one-line error, not a traceback
+    assert result.exit_code == 1
+    assert f"Error: Cannot serve on port {port}" in result.output

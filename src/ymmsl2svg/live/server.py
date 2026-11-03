@@ -1,12 +1,16 @@
 """Live viewer server: re-renders a yMMSL file on every save.
 
-Serves two routes:
+Serves two routes on a loopback TCP port, so only this machine can connect:
 
 * ``/``: the viewer page.
 * ``/events``: a Server-Sent Events stream with the rendered SVG (or the
   error) of the watched file, pushed on every change.
 
-The server listens on a loopback TCP port, so only this machine can connect.
+Changes are detected with watchfiles, which uses the operating system's file
+notifications and decides by itself when to poll instead (e.g. on WSL). The
+file's parent directory is watched rather than the file itself, so saves that
+replace the file (writing a temporary file and renaming it over the original,
+as Vim, Emacs and VS Code do) are seen too.
 """
 
 import json
@@ -20,7 +24,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from ymmsl2svg.live.watch import FileWatcher
+import watchfiles
+
 from ymmsl2svg.main import ymmsl2svg
 
 logger = logging.getLogger(__name__)
@@ -33,67 +38,57 @@ KEEPALIVE_SECONDS = 15
 _ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 
 
-class _WarningCollector(logging.Handler):
-    """Collects warnings logged while rendering, to show them in the viewer."""
-
-    def __init__(self) -> None:
-        super().__init__(logging.WARNING)
-        self.messages: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.messages.append(record.getMessage())
-
-
 class Viewer:
-    """Renders the watched yMMSL file and pushes the result to browsers."""
+    """Renders the yMMSL file on every save and pushes the result to browsers."""
 
     def __init__(self, ymmsl_file: Path) -> None:
         self.ymmsl_file = ymmsl_file.absolute()
-        self.watcher = FileWatcher(self.ymmsl_file, self.render)
         self.state: dict[str, Any] = {}
         self._last_svg: str | None = None
-        self._render_lock = threading.Lock()
+        self._stop = threading.Event()
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
         self._subscribers: list[queue.Queue] = []
         self._subscribers_lock = threading.Lock()
 
     def start(self) -> None:
-        """Start watching and render the file's current state."""
-        self.watcher.start()
+        """Render the file's current state, then re-render on every change."""
         self.render()
+        logger.info("Watching %s", self.ymmsl_file)
+        self._watcher.start()
 
     def stop(self) -> None:
         """Stop watching and end all event streams."""
-        self.watcher.stop()
+        self._stop.set()
+        self._watcher.join()
         self._publish(None)
+
+    def _watch(self) -> None:
+        # Changes from one save are grouped, so this renders once per save
+        for _ in watchfiles.watch(
+            self.ymmsl_file.parent,
+            watch_filter=lambda _, path: Path(path).name == self.ymmsl_file.name,
+            stop_event=self._stop,
+            recursive=False,
+        ):
+            self.render()
 
     def render(self) -> None:
         """Render the file and push the result (or the error) to all browsers."""
-        with self._render_lock:
-            collector = _WarningCollector()
-            package_logger = logging.getLogger("ymmsl2svg")
-            package_logger.addHandler(collector)
-            try:
-                svg = str(ymmsl2svg(self.ymmsl_file))
-                error = None
-            except Exception as exc:
-                svg = None
-                error = f"{type(exc).__name__}: {exc}"
-                logger.info("Rendering %s failed: %s", self.ymmsl_file, error)
-            finally:
-                package_logger.removeHandler(collector)
-
-            if svg is not None:
-                self._last_svg = svg
-            self.state = {
-                "ok": error is None,
-                # On errors: the last good diagram, so the view doesn't go blank
-                "svg": self._last_svg,
-                "error": error,
-                "warnings": collector.messages,
-                "file": str(self.ymmsl_file),
-                "updated": datetime.now().isoformat(timespec="seconds"),
-            }
-            self._publish(self.state)
+        try:
+            self._last_svg = str(ymmsl2svg(self.ymmsl_file))
+            error = None
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            logger.info("Rendering %s failed: %s", self.ymmsl_file, error)
+        self.state = {
+            "ok": error is None,
+            # On errors: the last good diagram, so the view doesn't go blank
+            "svg": self._last_svg,
+            "error": error,
+            "file": str(self.ymmsl_file),
+            "updated": datetime.now().isoformat(timespec="seconds"),
+        }
+        self._publish(self.state)
 
     def subscribe(self) -> queue.Queue:
         """Queue receiving the current state, then each update (None: stop)."""
@@ -116,7 +111,7 @@ class Viewer:
 class _Handler(BaseHTTPRequestHandler):
     """HTTP handler for the viewer page and its event stream."""
 
-    server: "_TCPServer"
+    server: "_Server"
 
     def do_GET(self) -> None:
         host = self.headers.get("Host", "").rsplit(":", 1)[0]
@@ -165,7 +160,7 @@ class _Handler(BaseHTTPRequestHandler):
         logger.debug("%s %s", self.address_string(), format % args)
 
 
-class _TCPServer(ThreadingHTTPServer):
+class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, port: int, viewer: Viewer) -> None:
@@ -173,38 +168,36 @@ class _TCPServer(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), _Handler)
 
 
-def make_server(viewer: Viewer, tcp_port: int) -> _TCPServer:
+def make_server(viewer: Viewer, port: int) -> _Server:
     """Create (but don't start) the server on a loopback TCP port."""
     try:
-        return _TCPServer(tcp_port, viewer)
+        return _Server(port, viewer)
     except OSError as exc:
         raise RuntimeError(
-            f"Cannot serve on port {tcp_port}: {exc.strerror}. "
+            f"Cannot serve on port {port}: {exc.strerror}. "
             "Pick another one with --port."
         ) from exc
 
 
-def serve(ymmsl_file: Path, tcp_port: int, open_browser: bool) -> None:
-    """Run the live viewer server (blocking).
+def serve(ymmsl_file: Path, port: int, open_browser: bool) -> None:
+    """Run the live viewer server until interrupted with Ctrl-C.
 
     Args:
         ymmsl_file: The yMMSL file to watch and render.
-        tcp_port: Loopback TCP port to serve on.
+        port: Loopback TCP port to serve on.
         open_browser: Open a browser at the URL once serving.
     """
     viewer = Viewer(ymmsl_file)
-    server = make_server(viewer, tcp_port)
+    server = make_server(viewer, port)
     viewer.start()
-    logger.info("Serving at http://localhost:%d/", tcp_port)
+    url = f"http://localhost:{port}/"
+    logger.info("Serving at %s", url)
     if open_browser:
-        webbrowser.open(f"http://localhost:{tcp_port}/")
-
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+        webbrowser.open(url)
     try:
-        threading.Event().wait()
+        server.serve_forever()
     except KeyboardInterrupt:
         logger.info("Stopping")
     finally:
         viewer.stop()
-        server.shutdown()
         server.server_close()

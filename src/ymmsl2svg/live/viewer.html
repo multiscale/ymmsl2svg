@@ -14,8 +14,6 @@
     --ok: #1a7f37;
     --bad: #cf222e;
     --error-bg: #ffebe9;
-    --warn-bg: #fff8c5;
-    --warn-border: #d4a72c;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -27,8 +25,6 @@
       --ok: #3fb950;
       --bad: #f85149;
       --error-bg: #3c1618;
-      --warn-bg: #3a2d0c;
-      --warn-border: #9e6a03;
     }
   }
   * { box-sizing: border-box; }
@@ -80,7 +76,6 @@
     overflow: auto;
   }
   #error { background: var(--error-bg); border-color: var(--bad); }
-  #warnings { background: var(--warn-bg); border-color: var(--warn-border); }
   #stage {
     position: relative;
     flex: 1;
@@ -124,7 +119,6 @@
   </div>
 </header>
 <pre id="error" class="banner" hidden></pre>
-<pre id="warnings" class="banner" hidden></pre>
 <main id="stage">
   <div id="placeholder">Waiting for the first render…</div>
   <div id="diagram" hidden></div>
@@ -221,8 +215,6 @@ function show(state) {
 
   $("error").hidden = state.ok;
   $("error").textContent = state.error || "";
-  $("warnings").hidden = !state.warnings.length;
-  $("warnings").textContent = state.warnings.map((w) => `⚠ ${w}`).join("\n");
 
   if (state.svg) {
     shadow.innerHTML = state.svg;
