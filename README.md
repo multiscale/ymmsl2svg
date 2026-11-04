@@ -46,6 +46,28 @@ uvx --from git+https://github.com/multiscale/ymmsl2svg.git ymmsl2svg workflow.ym
 uvx --from git+https://github.com/multiscale/ymmsl2svg.git ymmsl2svg --help
 ```
 
+## Live viewer
+
+`ymmsl2svg-live` shows the diagram of a yMMSL file in your browser and re-renders it
+every time you save the file, so you can edit yMMSL in your favourite text editor with
+a live preview next to it. If you save a file with errors, the error message appears
+above the last working diagram. If there is no working diagram yet, you see just the
+error until you fix it. It works on Linux, macOS and Windows (including WSL).
+
+To use it on your own computer, run:
+
+```bash
+ymmsl2svg-live workflow.ymmsl
+```
+
+This opens the viewer in your browser. If no browser opens (for example on WSL), copy
+the address printed in the terminal, `http://127.0.0.1:8765`, into your browser. Use
+`--no-open-browser` if you don't want a browser to open automatically. If that address
+is already in use, choose another number with `--port`, for example `--port 12345`.
+
+Use `--debug` to enable debug visualizations. Run `ymmsl2svg-live --help` for all
+options.
+
 ## Roadmap
 
 `ymmsl2svg` currently cannot visualize any valid yMMSL model yet, this section

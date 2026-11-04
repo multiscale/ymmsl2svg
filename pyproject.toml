@@ -16,8 +16,8 @@ license = "Apache-2.0"
 dependencies = [
     "click",
     "svg.py",
-    # "ymmsl >= 0.18",
-    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@develop",
+    "watchfiles >= 1.0",
+    "ymmsl >= 0.18",
 ]
 dynamic = ["version"]
 requires-python = ">= 3.10"
@@ -35,6 +35,7 @@ homepage = "https://github.com/multiscale/ymmsl2svg"
 
 [project.scripts]
 ymmsl2svg = "ymmsl2svg.cli:main"
+ymmsl2svg-live = "ymmsl2svg.live.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
