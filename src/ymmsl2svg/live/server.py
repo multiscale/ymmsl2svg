@@ -35,7 +35,7 @@ KEEPALIVE_SECONDS = 15
 
 #: Host names the viewer may be addressed as. Anything else is refused, so a
 #: web page can't reach the viewer through DNS rebinding.
-_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+_ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
 
 
 class Viewer:
@@ -116,7 +116,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         host = self.headers.get("Host", "").rsplit(":", 1)[0]
         if host not in _ALLOWED_HOSTS:
-            self.send_error(403, "Use http://localhost:<port>/")
+            self.send_error(403, "Use http://127.0.0.1:<port>/")
         elif self.path == "/":
             self._send_page()
         elif self.path == "/events":
@@ -190,7 +190,7 @@ def serve(ymmsl_file: Path, port: int, open_browser: bool) -> None:
     viewer = Viewer(ymmsl_file)
     server = make_server(viewer, port)
     viewer.start()
-    url = f"http://localhost:{port}/"
+    url = f"http://127.0.0.1:{port}/"
     logger.info("Serving at %s", url)
     if open_browser:
         webbrowser.open(url)

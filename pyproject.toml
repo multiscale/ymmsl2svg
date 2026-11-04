@@ -17,8 +17,7 @@ dependencies = [
     "click",
     "svg.py",
     "watchfiles >= 1.0",
-    # "ymmsl >= 0.18",
-    "ymmsl @ git+https://github.com/multiscale/ymmsl-python.git@develop",
+    "ymmsl >= 0.18",
 ]
 dynamic = ["version"]
 requires-python = ">= 3.10"

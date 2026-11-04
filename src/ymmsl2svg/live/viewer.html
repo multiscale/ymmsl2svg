@@ -28,6 +28,8 @@
     }
   }
   * { box-sizing: border-box; }
+  /* Rules like `display: grid` would otherwise override the hidden attribute */
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
     display: flex;
