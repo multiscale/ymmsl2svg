@@ -3,10 +3,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import svg
-from ymmsl.v0_2 import Conduit, Identifier, Operator, Reference, Timeline
+from ymmsl.v0_2 import Conduit, Operator, Reference, Timeline
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
+from ymmsl2svg.port_groups import HorizontalPortGroup, PortBlock
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
@@ -71,14 +72,12 @@ class Point:
 class PortPoint(Point):
     """Point corresponding to a component's port."""
 
-    def __init__(self, component: ComponentBlock, port: Identifier):
-        self.component = component
-        """Component the port belongs to"""
+    def __init__(self, port: PortBlock):
         self.port = port
         """Port of the component"""
 
     def __call__(self) -> tuple[float, float]:
-        return self.component.get_port_position(self.port)
+        return self.port.position
 
 
 class VirtualPortPoint(Point):
@@ -180,8 +179,8 @@ class TopConduitDuct(SvgBlock):
         self.right_vports: dict[Reference, list[Conduit]] = {}
         """Virtual ports for conduits going to self.right_conduit_duct."""
 
-        self.top_components: list[ComponentBlock] = []
-        """Parent components connecting to the top."""
+        self.top_port_groups: list[HorizontalPortGroup] = []
+        """HorizontalPortBlocks of the parent components connecting to the top."""
         self.ducts: list[ConduitDuct] = []
         """Conduit ducts connecting to the bottom."""
 
@@ -203,9 +202,9 @@ class TopConduitDuct(SvgBlock):
         """Register conduit duct."""
         self.ducts.append(conduit_duct)
 
-    def add_top_component(self, component: ComponentBlock) -> None:
-        """Register parent component connecting to the top"""
-        self.top_components.append(component)
+    def add_port_group(self, port_group: HorizontalPortGroup) -> None:
+        """Register the ports of a parent component connecting to the top"""
+        self.top_port_groups.append(port_group)
 
     def add_virtual_port(self, conduit: Conduit, left: bool) -> int:
         """Add a new conduit to a virtual port and return its index.
@@ -224,19 +223,19 @@ class TopConduitDuct(SvgBlock):
         vports[conduit.sender] = [conduit]
         return idx
 
-    def port_offsets(self, component: ComponentBlock) -> tuple[float, float]:
-        """Get offsets for the left-most O_I and right-most S port of a component."""
+    def port_offsets(self, port_group: HorizontalPortGroup) -> tuple[float, float]:
+        """Get offsets for the left-most O_I and right-most S port of a port group."""
         oi_offset = s_offset = 0
-        if component == self.top_components[0]:
+        if port_group == self.top_port_groups[0]:
             oi_offset = len(self.left_vports) * settings.port_margin
-        if component == self.top_components[-1]:
+        if port_group == self.top_port_groups[-1]:
             s_offset = -len(self.ducts[-1].vlanes_out) * settings.port_margin
         return oi_offset, s_offset
 
     def _fill_destinations(self) -> None:
         """Build lookup map for component destinations."""
-        for i, comp in enumerate(self.top_components):
-            self._destinations[comp.component.name] = ("T", i)
+        for i, port_group in enumerate(self.top_port_groups):
+            self._destinations[port_group.name] = ("T", i)
         for i, duct in enumerate(self.ducts):
             dest = ("B", i)
             for destination in duct.destinations():
@@ -260,14 +259,12 @@ class TopConduitDuct(SvgBlock):
             conduits connected to the right-most port.
         """
         # Conduits coming from top components
-        idx = len(self.top_components)
-        for component in reversed(self.top_components):
+        idx = len(self.top_port_groups)
+        for port_group in reversed(self.top_port_groups):
             idx -= 1
-            for conduit in component.conduits_per_operator(
-                Operator.O_I, self.timeline, reverse=True
-            ):
-                origin = PortPoint(component, conduit.sending_port())
-                yield (idx, origin, conduit)
+            for port in port_group.ports(Operator.O_I, reverse=True):
+                for conduit in port.conduits:
+                    yield (idx, PortPoint(port), conduit)
         # Conduits coming from the parent timeline
         if self.left_conduit_duct is None:
             # Reserve vlanes of model ports in reverse order
@@ -295,25 +292,18 @@ class TopConduitDuct(SvgBlock):
         if not self._destinations:
             self._fill_destinations()
 
-        if self.top_components:
+        if self.top_port_groups:
             # Reserve space for all O_I ports in the first component
-            for port in self.top_components[0].ports_per_operator(
-                Operator.O_I, self.timeline, reverse=True
-            ):
-                self.ducts[0].vlanes_in[port]
+            for port in self.top_port_groups[0].ports(Operator.O_I, reverse=True):
+                self.ducts[0].vlanes_in[port.ref]
             # Reserve space for all S ports in the last component
-            for port in self.top_components[-1].ports_per_operator(
-                Operator.S, self.timeline
-            ):
-                port_id = port[-1]
-                assert isinstance(port_id, Identifier)
-                conduits = self.top_components[-1].conduits_per_port[port_id]
-                if conduits:
-                    assert len(conduits) == 1  # S port can have at most 1 conduit
-                    self.ducts[-1].vlanes_out[conduits[0].sender]
+            for port in self.top_port_groups[-1].ports(Operator.S):
+                if port.conduits:
+                    assert len(port.conduits) == 1  # S port has at most 1 conduit
+                    self.ducts[-1].vlanes_out[port.conduits[0].sender]
                 else:
                     # No conduits connected to this port, but still reserve space:
-                    self.ducts[-1].vlanes_out[port]
+                    self.ducts[-1].vlanes_out[port.ref]
 
         # Route conduits coming from top components and parent timelines
         for itop, origin, conduit in self._get_input_conduits():
@@ -371,9 +361,10 @@ class TopConduitDuct(SvgBlock):
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
                     lanes.append(self._hlanes[conduit.sender])
                 lanes.append(self.ducts[-1].vlanes_out[conduit.sender])
-                if idest != len(self.top_components) - 1:
+                if idest != len(self.top_port_groups) - 1:
                     lanes.append(self._hlanes_for_s[conduit.sender])
-                dest = PortPoint(self.top_components[idest], conduit.receiving_port())
+                component = self.top_port_groups[idest].component
+                dest = PortPoint(component.ports[conduit.receiving_port()])
 
             route = ConduitRoute(origin, dest, lanes)
             self._routes.append(route)
@@ -453,7 +444,7 @@ class ConduitDuct(SvgBlock):
         idx = self._destinations[conduit.receiving_component()]
         connector = self.right_connectors[idx]
         if isinstance(connector, ComponentBlock):
-            return PortPoint(connector, conduit.receiving_port())
+            return PortPoint(connector.ports[conduit.receiving_port()])
         else:
             # Create new virtual port, if needed, and add conduit to it:
             idx = connector.add_virtual_port(conduit, left=True)
@@ -467,9 +458,9 @@ class ConduitDuct(SvgBlock):
         """
         for left_connector in self.left_connectors:
             if isinstance(left_connector, ComponentBlock):
-                for conduit in left_connector.conduits_per_operator(Operator.O_F):
-                    origin = PortPoint(left_connector, conduit.sending_port())
-                    yield origin, conduit
+                for port in left_connector.o_f_group.ports:
+                    for conduit in port.conduits:
+                        yield PortPoint(port), conduit
             else:
                 left_connector.route_conduits()
                 # Loop over conduits coming in from the child timeline:
