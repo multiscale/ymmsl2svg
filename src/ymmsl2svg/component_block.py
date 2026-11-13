@@ -60,10 +60,6 @@ class ComponentBlock(SvgBlock):
             right_conduit_duct.add_left_connector(subtimeline.top_conduit_duct)
 
         # Ports
-        self.ports: dict[Identifier, PortBlock] = {
-            name: PortBlock(self, port) for name, port in component.ports.items()
-        }
-        """All ports of this component, by name."""
         self.f_init_group = VerticalPortGroup(self, Operator.F_INIT)
         """F_INIT ports, on the left of the component."""
         self.o_f_group = VerticalPortGroup(self, Operator.O_F)
@@ -71,13 +67,24 @@ class ComponentBlock(SvgBlock):
         self.o_i_s_group = HorizontalPortGroup(self, subtimeline)
         """O_I and S ports below the component, connecting to the subtimeline."""
 
-        for port in self.ports.values():
+        for port in component.ports.values():
             if port.operator is Operator.F_INIT:
                 self.f_init_group.add_port(port)
             elif port.operator is Operator.O_F:
                 self.o_f_group.add_port(port)
             else:
                 self.o_i_s_group.add_port(port)
+
+        self.ports: dict[Identifier, PortBlock] = {
+            port.name: port
+            for port in (
+                self.f_init_group.ports(Operator.F_INIT)
+                + self.o_f_group.ports(Operator.O_F)
+                + self.o_i_s_group.ports(Operator.O_I)
+                + self.o_i_s_group.ports(Operator.S)
+            )
+        }
+        """All ports of this component, by name."""
 
     @property
     def port_groups(self) -> list[PortGroup]:
@@ -97,13 +104,11 @@ class ComponentBlock(SvgBlock):
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
         """Comparison function for component ports"""
         first = self.ports[port1]
-        assert first.group is not None
-        op = first.operator
-        for port in first.group.port_list(first):
+        for port in first.group.ports(first.operator):
             if port.name == port1:
-                return -1 if op is Operator.O_F else 1
+                return -1 if first.operator is Operator.O_F else 1
             elif port.name == port2:
-                return 1 if op is Operator.O_F else -1
+                return 1 if first.operator is Operator.O_F else -1
         raise RuntimeError("Unreachable")
 
     def sort_output_ports(self, key: Callable) -> None:

@@ -22,19 +22,22 @@ class PortBlock:
         Operator.S: "#port-s",
     }
 
-    def __init__(self, component: "ComponentBlock", port: Port) -> None:
-        self.component = component
-        """Component this port belongs to."""
+    def __init__(self, group: "PortGroup", port: Port) -> None:
+        self.group = group
+        """Port group this port is in."""
         self.port = port
         """The yMMSL port."""
         self.conduits: list[Conduit] = []
         """Conduits connected to this port."""
-        self.group: PortGroup | None = None
-        """Port group this port is in, set by the group's add_port."""
         self.x: float = 0
         """x-position of the port, see class docs for the frame."""
         self.y: float = 0
         """y-position of the port, see class docs for the frame."""
+
+    @property
+    def component(self) -> "ComponentBlock":
+        """Component this port belongs to."""
+        return self.group.component
 
     @property
     def name(self) -> Identifier:
@@ -86,32 +89,42 @@ class VerticalPortGroup(SvgBlock):
         """Component that these ports belong to."""
         self.operator = operator
         """Operator of the ports: F_INIT (left side) or O_F (right side)."""
-        self.ports: list[PortBlock] = []
+        self._ports: list[PortBlock] = []
         """Ports, from top to bottom."""
 
-    def add_port(self, port: PortBlock) -> None:
+    def add_port(self, port: Port) -> None:
         """Add a port to this group."""
         assert port.operator is self.operator
-        self.ports.append(port)
-        port.group = self
+        self._ports.append(PortBlock(self, port))
 
-    def port_list(self, port: PortBlock) -> list[PortBlock]:
-        """Get the list of ports in this group, from top to bottom."""
-        return self.ports
+    def ports(self, operator: Operator, reverse: bool = False) -> list[PortBlock]:
+        """Get the ports of an operator (F_INIT or O_F), from top to bottom.
+
+        Args:
+            operator: Operator of the ports, must be the operator of this group.
+            reverse: Return the ports from bottom to top instead. N.B. the result is
+                then a copy and not the list of this group.
+        """
+        if operator is not self.operator:
+            raise ValueError(
+                f"This VerticalPortGroup has {self.operator.name} ports, not "
+                f"{operator.name}"
+            )
+        return self._ports[::-1] if reverse else self._ports
 
     def sort_output_ports(self, key: Callable) -> None:
         """Sort O_F ports by key(conduits of the port), from bottom to top."""
         if self.operator is Operator.O_F:
-            self.ports.sort(key=lambda port: key(port.conduits), reverse=True)
+            self._ports.sort(key=lambda port: key(port.conduits), reverse=True)
 
     def sort_input_ports(self, key: Callable) -> None:
         """Sort F_INIT ports by key(conduits of the port), from top to bottom."""
         if self.operator is Operator.F_INIT:
-            self.ports.sort(key=lambda port: key(port.conduits))
+            self._ports.sort(key=lambda port: key(port.conduits))
 
     def min_height(self) -> float:
         """Minimal height to fit all ports."""
-        return len(self.ports) * settings.port_margin
+        return len(self._ports) * settings.port_margin
 
     def calc_layout(self) -> None:
         """Position the ports.
@@ -121,8 +134,8 @@ class VerticalPortGroup(SvgBlock):
         self.width = settings.port_size
         # Ports are drawn on the outer edge, away from the component
         x = self.x if self.operator is Operator.F_INIT else self.x + self.width
-        y = self.y + self.height / 2 - (len(self.ports) - 1) * settings.port_margin / 2
-        for port in self.ports:
+        y = self.y + self.height / 2 - (len(self._ports) - 1) * settings.port_margin / 2
+        for port in self._ports:
             port.x, port.y = x, y
             y += settings.port_margin
 
@@ -130,7 +143,7 @@ class VerticalPortGroup(SvgBlock):
         """Build the SVG representing these ports."""
         group = super().to_svg()
         assert group.elements is not None
-        group.elements.extend(port.to_svg() for port in self.ports)
+        group.elements.extend(port.to_svg() for port in self._ports)
         return group
 
 
@@ -161,15 +174,11 @@ class HorizontalPortGroup(SvgBlock):
         """Name of the component that these ports belong to."""
         return self.component.component.name
 
-    def add_port(self, port: PortBlock) -> None:
+    def add_port(self, port: Port) -> None:
         """Add an O_I or S port to this group."""
-        if self.subtimeline is None:
-            raise RuntimeError(
-                f"Component '{self.name}' has O_I or S port '{port.name}', but no "
-                "subtimeline."
-            )
-        self.ports(port.operator).append(port)
-        port.group = self
+        # yMMSL gives every component with O_I/S ports a subtimeline
+        assert self.subtimeline is not None
+        self.ports(port.operator).append(PortBlock(self, port))
 
     def ports(self, operator: Operator, reverse: bool = False) -> list[PortBlock]:
         """Get the ports of an operator (O_I or S), from left to right.
@@ -186,10 +195,6 @@ class HorizontalPortGroup(SvgBlock):
         else:
             raise ValueError(f"A HorizontalPortGroup has no {operator.name} ports")
         return ports[::-1] if reverse else ports
-
-    def port_list(self, port: PortBlock) -> list[PortBlock]:
-        """Get the O_I or the S ports, depending on `port`, from left to right."""
-        return self.ports(port.operator)
 
     def sort_output_ports(self, key: Callable) -> None:
         """Sort the O_I ports by key(conduits of the port), from left to right."""

@@ -458,7 +458,7 @@ class ConduitDuct(SvgBlock):
         """
         for left_connector in self.left_connectors:
             if isinstance(left_connector, ComponentBlock):
-                for port in left_connector.o_f_group.ports:
+                for port in left_connector.o_f_group.ports(Operator.O_F):
                     for conduit in port.conduits:
                         yield PortPoint(port), conduit
             else:
