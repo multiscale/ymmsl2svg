@@ -262,7 +262,7 @@ class TopConduitDuct(SvgBlock):
         idx = len(self.top_port_groups)
         for port_group in reversed(self.top_port_groups):
             idx -= 1
-            for port in port_group.ports(Operator.O_I, reverse=True):
+            for port in reversed(port_group.ports(Operator.O_I)):
                 for conduit in port.conduits:
                     yield (idx, PortPoint(port), conduit)
         # Conduits coming from the parent timeline
@@ -294,7 +294,7 @@ class TopConduitDuct(SvgBlock):
 
         if self.top_port_groups:
             # Reserve space for all O_I ports in the first component
-            for port in self.top_port_groups[0].ports(Operator.O_I, reverse=True):
+            for port in reversed(self.top_port_groups[0].ports(Operator.O_I)):
                 self.ducts[0].vlanes_in[port.ref]
             # Reserve space for all S ports in the last component
             for port in self.top_port_groups[-1].ports(Operator.S):

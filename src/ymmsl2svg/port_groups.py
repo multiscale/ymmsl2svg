@@ -92,25 +92,25 @@ class VerticalPortGroup(SvgBlock):
         self._ports: list[PortBlock] = []
         """Ports, from top to bottom."""
 
-    def add_port(self, port: Port) -> None:
-        """Add a port to this group."""
+    def add_port(self, port: Port) -> PortBlock:
+        """Add a port to this group and return its PortBlock."""
         assert port.operator is self.operator
-        self._ports.append(PortBlock(self, port))
+        port_block = PortBlock(self, port)
+        self._ports.append(port_block)
+        return port_block
 
-    def ports(self, operator: Operator, reverse: bool = False) -> list[PortBlock]:
+    def ports(self, operator: Operator) -> list[PortBlock]:
         """Get the ports of an operator (F_INIT or O_F), from top to bottom.
 
         Args:
             operator: Operator of the ports, must be the operator of this group.
-            reverse: Return the ports from bottom to top instead. N.B. the result is
-                then a copy and not the list of this group.
         """
         if operator is not self.operator:
             raise ValueError(
                 f"This VerticalPortGroup has {self.operator.name} ports, not "
                 f"{operator.name}"
             )
-        return self._ports[::-1] if reverse else self._ports
+        return self._ports
 
     def sort_output_ports(self, key: Callable) -> None:
         """Sort O_F ports by key(conduits of the port), from bottom to top."""
@@ -174,19 +174,19 @@ class HorizontalPortGroup(SvgBlock):
         """Name of the component that these ports belong to."""
         return self.component.component.name
 
-    def add_port(self, port: Port) -> None:
-        """Add an O_I or S port to this group."""
+    def add_port(self, port: Port) -> PortBlock:
+        """Add an O_I or S port to this group and return its PortBlock."""
         # yMMSL gives every component with O_I/S ports a subtimeline
         assert self.subtimeline is not None
-        self.ports(port.operator).append(PortBlock(self, port))
+        port_block = PortBlock(self, port)
+        self.ports(port.operator).append(port_block)
+        return port_block
 
-    def ports(self, operator: Operator, reverse: bool = False) -> list[PortBlock]:
+    def ports(self, operator: Operator) -> list[PortBlock]:
         """Get the ports of an operator (O_I or S), from left to right.
 
         Args:
             operator: Operator of the ports.
-            reverse: Return the ports from right to left instead. N.B. the result is
-                then a copy and not the list of this group.
         """
         if operator is Operator.O_I:
             ports = self.o_i_ports
@@ -194,7 +194,7 @@ class HorizontalPortGroup(SvgBlock):
             ports = self.s_ports
         else:
             raise ValueError(f"A HorizontalPortGroup has no {operator.name} ports")
-        return ports[::-1] if reverse else ports
+        return ports
 
     def sort_output_ports(self, key: Callable) -> None:
         """Sort the O_I ports by key(conduits of the port), from left to right."""

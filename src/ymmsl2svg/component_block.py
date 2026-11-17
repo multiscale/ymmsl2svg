@@ -67,24 +67,17 @@ class ComponentBlock(SvgBlock):
         self.o_i_s_group = HorizontalPortGroup(self, subtimeline)
         """O_I and S ports below the component, connecting to the subtimeline."""
 
+        self.ports: dict[Identifier, PortBlock] = {}
+        """All ports of this component, by name."""
+
         for port in component.ports.values():
             if port.operator is Operator.F_INIT:
-                self.f_init_group.add_port(port)
+                port_block = self.f_init_group.add_port(port)
             elif port.operator is Operator.O_F:
-                self.o_f_group.add_port(port)
+                port_block = self.o_f_group.add_port(port)
             else:
-                self.o_i_s_group.add_port(port)
-
-        self.ports: dict[Identifier, PortBlock] = {
-            port.name: port
-            for port in (
-                self.f_init_group.ports(Operator.F_INIT)
-                + self.o_f_group.ports(Operator.O_F)
-                + self.o_i_s_group.ports(Operator.O_I)
-                + self.o_i_s_group.ports(Operator.S)
-            )
-        }
-        """All ports of this component, by name."""
+                port_block = self.o_i_s_group.add_port(port)
+            self.ports[port.name] = port_block
 
     @property
     def port_groups(self) -> list[PortGroup]:
