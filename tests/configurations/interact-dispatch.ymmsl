@@ -1,0 +1,36 @@
+ymmsl_version: v0.2
+description: interact coupling between components that are also dispatched
+models:
+  interact_dispatch:
+    components:
+      init:
+        description: Creates the initial state of both sides
+        ports:
+          o_f: left_out right_out
+      left:
+        description: Left side of the domain
+        ports:
+          f_init: init
+          o_i: out
+          s: in
+          o_f: final
+      right:
+        description: Right side of the domain
+        ports:
+          f_init: init
+          o_i: out
+          s: in
+          o_f: final
+      end:
+        description: Combines the final states of both sides
+        ports:
+          f_init: left_in right_in
+    matching_timelines:
+      main: left right
+    conduits:
+      init.left_out: left.init
+      init.right_out: right.init
+      left.out: right.in
+      right.out: left.in
+      left.final: end.left_in
+      right.final: end.right_in

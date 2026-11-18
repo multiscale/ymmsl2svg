@@ -6,6 +6,7 @@ from string import Template
 import svg
 from ymmsl.v0_2 import Model
 
+from ymmsl2svg.base import split_debug_layer
 from ymmsl2svg.model_block import ModelBlock
 from ymmsl2svg.settings import settings
 
@@ -47,13 +48,12 @@ class SVGBuilder:
     def build_svg(self) -> svg.SVG:
         """Build the SVG for the given yMMSL model."""
         model = ModelBlock(self.model)
+        content = model.to_svg()
 
-        return svg.SVG(
-            width=model.width,
-            height=model.height,
-            elements=[
-                self._style(),
-                self._defs(),
-                model.to_svg(),
-            ],
-        )
+        elements: list[svg.Element] = [self._style(), self._defs()]
+        if settings.debug:
+            debug_layer = split_debug_layer(content)
+            if debug_layer is not None:
+                elements.append(debug_layer)
+        elements.append(content)
+        return svg.SVG(width=model.width, height=model.height, elements=elements)

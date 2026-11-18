@@ -1,0 +1,27 @@
+ymmsl_version: v0.2
+description: interact coupling where one side also calls a micro model
+models:
+  interact_micro:
+    components:
+      left:
+        description: Left side of the domain
+        ports:
+          o_i: out micro_out
+          s: in micro_in
+      micro:
+        description: Micro model called by left on its interact timeline
+        ports:
+          f_init: init
+          o_f: final
+      right:
+        description: Right side of the domain
+        ports:
+          o_i: out
+          s: in
+    matching_timelines:
+      main: left right
+    conduits:
+      left.out: right.in
+      right.out: left.in
+      left.micro_out: micro.init
+      micro.final: left.micro_in

@@ -48,6 +48,7 @@ class ModelBlock(SvgBlock):
             if sending_component != receiving_component:
                 self.components.get(receiving_component, self).add_conduit(conduit)
         self.sort_ports_and_conduits()
+        self.timeline_block.route_interact_conduits()
         self.timeline_block.route_conduits()
         self.calc_layout()
 

@@ -4,7 +4,7 @@
 .TimelineBlock {
     fill: rgb(195, 130, 255);
 }
-.TopConduitDuct {
+.TopConduitDuct, .BottomConduitDuct {
     fill: #ccc;
 }
 .ConduitDuct {
@@ -12,6 +12,9 @@
 }
 .ComponentBlock {
     fill: rgb(134, 146, 255);
+}
+.VerticalPortGroup, .HorizontalPortGroup {
+    fill: rgb(255, 214, 130);
 }
 .ModelBlock {
     fill: #baffbd;
