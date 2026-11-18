@@ -28,23 +28,48 @@ with the port name when hovering over a port.
 
 [![Dispatch submodel with model ports](examples/simple-dispatch.svg)](https://raw.githubusercontent.com/multiscale/ymmsl2svg/refs/heads/main/examples/simple-dispatch.svg)
 
-[![alt text](examples/macro-micro-dispatched.svg)](https://raw.githubusercontent.com/multiscale/ymmsl2svg/refs/heads/main/examples/macro-micro-dispatched.svg)
+[![Complex call/release coupling](examples/macro-micro-dispatched.svg)](https://raw.githubusercontent.com/multiscale/ymmsl2svg/refs/heads/main/examples/macro-micro-dispatched.svg)
+
+## Installation
+
+`ymmsl2svg` is [available on PyPI](https://pypi.org/project/ymmsl2svg/) and can be
+installed with pip:
+
+```bash
+pip install ymmsl2svg
+```
 
 ## Usage
 
-`ymmsl2svg` depends on a development version of
-[`ymmsl-python`](https://github.com/multiscale/ymmsl-python). Therefore we don't have a
-package available on PyPI yet. Until the upstream functionality is available in a
-`ymmsl-python` release, we recommend to run `ymmsl2svg` with `uvx` (see the [`uv`
-installation instructions](https://docs.astral.sh/uv/getting-started/installation/)):
-
 ```bash
 # Create 'workflow.svg' image from the root model in 'workflow.ymmsl'
-uvx --from git+https://github.com/multiscale/ymmsl2svg.git ymmsl2svg workflow.ymmsl -o workflow.svg
+ymmsl2svg workflow.ymmsl -o workflow.svg
 
 # Show supported options and settings
-uvx --from git+https://github.com/multiscale/ymmsl2svg.git ymmsl2svg --help
+ymmsl2svg --help
 ```
+
+### Live viewer
+
+`ymmsl2svg-live` shows the diagram of a yMMSL file in your browser and re-renders it
+every time you save the file, so you can edit yMMSL in your favourite text editor with
+a live preview next to it. If you save a file with errors, the error message appears
+above the last working diagram. If there is no working diagram yet, you see just the
+error until you fix it. It works on Linux, macOS and Windows (including WSL).
+
+To use it on your own computer, run:
+
+```bash
+ymmsl2svg-live workflow.ymmsl
+```
+
+This opens the viewer in your browser. If no browser opens (for example on WSL), copy
+the address printed in the terminal, `http://127.0.0.1:8765`, into your browser. Use
+`--no-open-browser` if you don't want a browser to open automatically. If that address
+is already in use, choose another number with `--port`, for example `--port 12345`.
+
+Use `--debug` to enable debug visualizations. Run `ymmsl2svg-live --help` for all
+options.
 
 ## Roadmap
 

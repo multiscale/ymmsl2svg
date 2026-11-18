@@ -7,6 +7,7 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.settings import settings
+from ymmsl2svg.timeline_layer import TimelineLayer
 from ymmsl2svg.timeline_node import TimelineNode
 
 
@@ -17,7 +18,7 @@ class TimelineBlock(SvgBlock):
     yMMSL timeline. Subtimelines are instantiated and layed out recursively.
     """
 
-    def __init__(self, node: TimelineNode) -> None:
+    def __init__(self, node: TimelineNode, layer: TimelineLayer) -> None:
         super().__init__()
 
         self.node = node
@@ -25,10 +26,10 @@ class TimelineBlock(SvgBlock):
             raise NotImplementedError(
                 "Visualization for interact coupling is not yet implemented."
             )
+        self.layer = layer
+        layer.add(self)
 
         self.transform: svg.Transform = svg.Translate(0, 0)
-        self.min_top_height: float = 0
-        """Minimum height of our top_conduit_duct, set by align_nesting_levels."""
 
         self.top_conduit_duct = TopConduitDuct(self, node.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
@@ -40,7 +41,7 @@ class TimelineBlock(SvgBlock):
         self.subtimelines: list[TimelineBlock] = []
         subtl_per_component: dict[Reference, list[TimelineBlock]] = {}
         for subnode in node.children.values():
-            subtimeline = TimelineBlock(subnode)
+            subtimeline = TimelineBlock(subnode, layer.next_layer())
             self.subtimelines.append(subtimeline)
             for component in subnode.parent_components:
                 subtl_per_component.setdefault(component.name, []).append(subtimeline)
@@ -50,6 +51,7 @@ class TimelineBlock(SvgBlock):
             subtimelines = subtl_per_component.get(component.name, [])
             cblock = ComponentBlock(
                 component,
+                layer,
                 subtimelines,
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
@@ -125,48 +127,22 @@ class TimelineBlock(SvgBlock):
         extra_last = max(0.0, (target + bias) - last_duct.width)
         return leading_first, 0.0, extra_last
 
-    def align_nesting_levels(self) -> None:
-        """Line up the components of all subtimelines at the same nesting depth.
-
-        A subtimeline's components sit owner.height + top_conduit_duct.height below
-        the components of the row holding its owner. Per depth, pad each subtimeline's
-        top_conduit_duct (via min_top_height) so that this distance is the same
-        everywhere: this aligns e.g. the subtimelines of two different components in
-        the same row, not just sibling subtimelines of one component.
-
-        Must be called after calc_layout, which must then be called again to apply it.
-        """
-        rows: list[TimelineBlock] = [self]
-        while True:
-            pairs = [
-                (component, subtl)
-                for row in rows
-                for component in row.components
-                for subtl in component.subtimelines
-            ]
-            if not pairs:
-                break
-            offset = max(c.height + s.top_conduit_duct.height for c, s in pairs)
-            for component, subtl in pairs:
-                subtl.min_top_height = offset - component.height
-            rows = [subtl for _, subtl in pairs]
-
-    def calc_layout(self):
+    def calc_layout(self) -> None:
         """Calculate the size and layout of the timeline block and its contents."""
-        for subtl in self.subtimelines:
-            subtl.calc_layout()
         self.top_conduit_duct.calc_layout()
-        self.top_conduit_duct.height = max(
-            self.top_conduit_duct.height, self.min_top_height
-        )
+        self.top_conduit_duct.height = self.layer.conduitduct_height
 
         leading_first, extra_first, extra_last = self._boundary_duct_padding()
 
         width = 0
-        height = 0
         for item in self._iter_cd_and_components():
             item.x = width
             item.y = self.top_conduit_duct.height
+            if isinstance(item, ComponentBlock):
+                # Center the component rectangles in the timeline layer
+                item.y += (
+                    self.layer.component_height - item.minimum_component_height
+                ) // 2
             if item is self.conduit_ducts[0]:
                 item.calc_layout(leading_pad=leading_first)
                 item.width += extra_first
@@ -175,14 +151,11 @@ class TimelineBlock(SvgBlock):
             if item is self.conduit_ducts[-1]:
                 item.width += extra_last
             width += item.width
-            height = max(height, item.height)
 
         self.width = width
         self.top_conduit_duct.width = self.width
-        self.height = (
-            self.top_conduit_duct.height
-            + max((c.height for c in self.components), default=0)
-            + max((tl.height for tl in self.subtimelines), default=0)
+        self.height = self.layer.height + max(
+            (tl.height for tl in self.subtimelines), default=0
         )
 
     def moveto(self, x: float, y: float) -> None:
