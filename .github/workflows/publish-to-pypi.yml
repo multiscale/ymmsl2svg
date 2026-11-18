@@ -11,6 +11,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         persist-credentials: false
+        fetch-depth: 0
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -38,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/ymmsl2svg  # Replace <package-name> with your PyPI project name
+      url: https://pypi.org/p/ymmsl2svg
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 
@@ -53,14 +54,13 @@ jobs:
 
   publish-to-testpypi:
     name: Publish Python distribution to TestPyPI
+    if: github.ref == 'refs/heads/main'
     needs:
     - build
     runs-on: ubuntu-latest
-
     environment:
       name: testpypi
       url: https://test.pypi.org/p/ymmsl2svg
-
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 

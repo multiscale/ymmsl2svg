@@ -154,19 +154,24 @@ class TimelineBlock(SvgBlock):
             sequence = [component for row in rows for component in row.components]
             index = {c.component.name: i for i, c in enumerate(sequence)}
             for isender, sender in enumerate(sequence):
-                for conduit in sender.conduits_per_operator(Operator.O_I):
+                o_i_ports = [
+                    port
+                    for group in sender.o_i_s_groups
+                    for port in group.ports(Operator.O_I)
+                ]
+                for conduit in (c for port in o_i_ports for c in port.conduits):
                     ireceiver = index.get(conduit.receiving_component())
                     if ireceiver is None or ireceiver == isender:
                         continue  # not in an interact coupling
                     receiver = sequence[ireceiver]
-                    port = receiver.component.ports[conduit.receiving_port()]
+                    port = receiver.ports[conduit.receiving_port()]
                     if port.operator is not Operator.S:
                         continue  # not in an interact coupling
 
                     subtl = sender.subtimeline_for_port(conduit.sending_port())
                     subtl.top_conduit_duct.skip_receivers.add(conduit.receiver)
-                    origin = RootPortPoint(sender, conduit.sending_port())
-                    dest = RootPortPoint(receiver, conduit.receiving_port())
+                    origin = RootPortPoint(sender.ports[conduit.sending_port()])
+                    dest = RootPortPoint(port)
                     duct = self.bottom_ducts.setdefault(depth, BottomConduitDuct())
                     lane = duct.add_lane(conduit.receiver, origin, dest)
                     self.top_conduit_duct.add_route(ConduitRoute(origin, dest, [lane]))

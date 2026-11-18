@@ -1,28 +1,21 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import svg
-from ymmsl.v0_2 import (
-    Component,
-    Conduit,
-    Identifier,
-    Operator,
-    Port,
-    Reference,
-    Timeline,
-)
+from ymmsl.v0_2 import Component, Conduit, Identifier, Operator, Reference, Timeline
 
 from ymmsl2svg.base import SvgBlock
+from ymmsl2svg.port_groups import (
+    HorizontalPortGroup,
+    PortBlock,
+    PortGroup,
+    VerticalPortGroup,
+)
 from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
     from ymmsl2svg.conduit_ducts import ConduitDuct
     from ymmsl2svg.timeline_block import TimelineBlock
-
-
-def ports_for_operator(component: Component, operator: Operator) -> list[Port]:
-    """Return a list of ports of the component for the given operator"""
-    return [port for port in component.ports.values() if port.operator is operator]
 
 
 class ComponentBlock(SvgBlock):
@@ -45,6 +38,9 @@ class ComponentBlock(SvgBlock):
         """Width of the component rectangle"""
         self.component_height: float = 0
         """Height of the component rectangle"""
+        self.subtimeline_gap: float = 0
+        """Space between our O_I/S ports and our subtimelines, for interact conduits
+        passing right under us (set by TimelineBlock.align_nesting_levels)."""
 
         # Data
         self.component = component
@@ -60,60 +56,52 @@ class ComponentBlock(SvgBlock):
         self.right_conduit_duct = right_conduit_duct
         left_conduit_duct.add_right_connector(self)
         right_conduit_duct.add_left_connector(self)
-        # Conduit connections to subtimelines. Each subtimeline gets its own slot in
-        # the same left/right ducts as this component.
+        # Each subtimeline gets its own slot in the same left/right ducts as this
+        # component.
         for subtl in subtimelines:
             left_conduit_duct.add_right_connector(subtl.top_conduit_duct)
             right_conduit_duct.add_left_connector(subtl.top_conduit_duct)
-            subtl.top_conduit_duct.add_top_component(self)
 
-        self._ports_per_operator = {
-            op: ports_for_operator(component, op) for op in Operator
-        }
-        self.f_init_ports = self._ports_per_operator[Operator.F_INIT]
-        self.o_f_ports = self._ports_per_operator[Operator.O_F]
-        self.o_i_ports = self._ports_per_operator[Operator.O_I]
-        self.s_ports = self._ports_per_operator[Operator.S]
+        # Ports
+        self.f_init_group = VerticalPortGroup(self, Operator.F_INIT)
+        """F_INIT ports, on the left of the component."""
+        self.o_f_group = VerticalPortGroup(self, Operator.O_F)
+        """O_F ports, on the right of the component."""
+        self.o_i_s_groups = [HorizontalPortGroup(self, subtl) for subtl in subtimelines]
+        """O_I and S ports below the component, one group per subtimeline."""
 
-        self.port_positions: dict[Identifier, tuple[float, float]] = {}
-        self._port_segment_x: dict[Identifier, float] = {}
-        """x-offset of the subtimeline that each O_I/S port belongs to, used to convert
-        its position to be relative to that subtimeline."""
-        self._subtimeline_y: float = 0
-        """y-offset of the subtimelines (shared by all of them), used to convert an
-        O_I/S port's position to be relative to its subtimeline."""
-        self.subtimeline_gap: float = 0
-        """Space between our O_I/S ports and our subtimelines, for interact conduits
-        passing right under us (set by TimelineBlock.align_nesting_levels)."""
-        self.conduits_per_port: dict[Identifier, list[Conduit]] = {
-            port: [] for port in self.component.ports
-        }
+        self.ports: dict[Identifier, PortBlock] = {}
+        """All ports of this component, by name."""
 
-    def _ports_iter(self, operator: Operator, timeline: Timeline | None, reverse: bool):
-        """Iterate over the component's ports for the given operator.
+        for port in component.ports.values():
+            if port.operator is Operator.F_INIT:
+                port_block = self.f_init_group.add_port(port)
+            elif port.operator is Operator.O_F:
+                port_block = self.o_f_group.add_port(port)
+            else:
+                port_block = self._group_for_port(port.name).add_port(port)
+            self.ports[port.name] = port_block
 
-        Args:
-            operator: Operator to filter on.
-            timeline: Only return the ports that send or receive in this timeline.
-                If None or empty, all ports are returned.
-            reverse: Reverse the order of the ports.
-        """
-        ports = self._ports_per_operator[operator]
-        if timeline:
-            name = self.component.name
-            ports = [
-                port
-                for port in ports
-                if self.port_timelines.get(name + port.name) == timeline
-            ]
-        if reverse:
-            ports = reversed(ports)
-        yield from ports
+    @property
+    def port_groups(self) -> list[PortGroup]:
+        """All port groups of this component, in drawing order."""
+        return [self.f_init_group, self.o_f_group, *self.o_i_s_groups]
+
+    def _group_for_port(self, port: Identifier) -> HorizontalPortGroup:
+        """Get the group of the subtimeline that an O_I or S port sends/receives in."""
+        timeline = self.port_timelines[self.component.name + port]
+        for group in self.o_i_s_groups:
+            assert group.subtimeline is not None
+            if group.subtimeline.node.timeline == timeline:
+                return group
+        raise RuntimeError(f"No subtimeline found for port {port}")
 
     def subtimeline_for_port(self, port: Identifier) -> "TimelineBlock":
         """Get the subtimeline that an O_I or S port sends or receives in."""
-        timeline = self.port_timelines[self.component.name + port]
-        return next(tl for tl in self.subtimelines if tl.node.timeline == timeline)
+        group = self.ports[port].group
+        assert isinstance(group, HorizontalPortGroup)
+        assert group.subtimeline is not None
+        return group.subtimeline
 
     def add_conduit(self, conduit: Conduit):
         """Register conduit for this component."""
@@ -123,80 +111,27 @@ class ComponentBlock(SvgBlock):
             portname = conduit.receiving_port()
         else:
             raise RuntimeError("Unreachable")
-        self.conduits_per_port[portname].append(conduit)
-
-    def conduits_per_operator(
-        self,
-        operator: Operator,
-        timeline: Timeline | None = None,
-        reverse: bool = False,
-    ) -> Iterator[Conduit]:
-        """Iterate over all conduits connected to ports of an operator.
-
-        Args:
-            operator: Operator to filter on.
-            timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reverse: Reverse the order of the conduits.
-        """
-        for port in self._ports_iter(operator, timeline, reverse):
-            yield from self.conduits_per_port.get(port.name, [])
-
-    def ports_per_operator(
-        self,
-        operator: Operator,
-        timeline: Timeline | None = None,
-        reverse: bool = False,
-    ) -> Iterator[Reference]:
-        """Iterate over full port references of all ports of an operator.
-
-        Args:
-            operator: Operator to filter on.
-            timeline: Timeline to filter on (only applicable to O_I and S ports).
-            reverse: Reverse the order of the ports.
-        """
-        for port in self._ports_iter(operator, timeline, reverse):
-            yield self.component.name + port.name
+        self.ports[portname].add_conduit(conduit)
 
     def cmp_ports(self, port1: Identifier, port2: Identifier) -> int:
         """Comparison function for component ports"""
-        op = self.component.ports[port1].operator
-        for p in self._ports_per_operator[op]:
-            if p.name == port1:
-                return -1 if op is Operator.O_F else 1
-            elif p.name == port2:
-                return 1 if op is Operator.O_F else -1
+        first = self.ports[port1]
+        for port in first.group.ports(first.operator):
+            if port.name == port1:
+                return -1 if first.operator is Operator.O_F else 1
+            elif port.name == port2:
+                return 1 if first.operator is Operator.O_F else -1
         raise RuntimeError("Unreachable")
 
     def sort_output_ports(self, key: Callable) -> None:
         """Sort O_I/O_F ports in this component"""
-
-        def port_sort(port: Port):
-            return key(self.conduits_per_port[port.name])
-
-        self.o_i_ports.sort(key=port_sort)
-        self.o_f_ports.sort(key=port_sort, reverse=True)
+        for group in self.port_groups:
+            group.sort_output_ports(key)
 
     def sort_input_ports(self, key: Callable) -> None:
         """Sort F_INIT/S ports in this component"""
-
-        def port_sort(port: Port):
-            return key(self.conduits_per_port[port.name])
-
-        self.f_init_ports.sort(key=port_sort)
-        self.s_ports.sort(key=port_sort)
-
-    def get_port_position(self, port: Identifier):
-        """Get x,y position of the port.
-
-        N.B. F_INIT and O_F ports will return the position w.r.t. the timeline that this
-        component is in. O_I and S ports will return the position w.r.t. their
-        subtimeline.
-        """
-        if self.component.ports[port].operator in (Operator.F_INIT, Operator.O_F):
-            return self.port_positions[port]
-        # Relative to subtimeline:
-        x, y = self.port_positions[port]
-        return (x - self._port_segment_x[port], y - self._subtimeline_y)
+        for group in self.port_groups:
+            group.sort_input_ports(key)
 
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
@@ -209,26 +144,30 @@ class ComponentBlock(SvgBlock):
         self.width = self.component_width + 2 * settings.port_size
         self.component_x = self.x + settings.port_size
 
-        max_num_ports = max(len(self.f_init_ports), len(self.o_f_ports))
-        port_height = max_num_ports * settings.port_margin
-        self.component_height = max(settings.component_height, port_height)
+        self.component_height = max(
+            settings.component_height,
+            self.f_init_group.min_height(),
+            self.o_f_group.min_height(),
+        )
         self.height = self.component_height
 
-        # Make space for o_i and s ports
-        if self.o_i_ports or self.s_ports:
-            self.height += settings.port_size
+        # The F_INIT and O_F ports go left and right of the component
+        for group, x in [
+            (self.f_init_group, self.x),
+            (self.o_f_group, self.component_x + self.component_width),
+        ]:
+            group.x, group.y, group.height = x, self.y, self.component_height
+            group.calc_layout()
 
-        # Calculate (x, y) positions for each port
-        for ports, x in [(self.f_init_ports, 0), (self.o_f_ports, self.width)]:
-            y = self.component_height / 2 - (len(ports) - 1) * settings.port_margin / 2
-            for port in ports:
-                self.port_positions[port.name] = (self.x + x, self.y + y)
-                y += settings.port_margin
-
-        segment_bounds = self._segment_bounds()
-        self._subtimeline_y = self.y + self.height + self.subtimeline_gap
-        for i, timeline in enumerate(self.subtimelines):
-            self._place_subtimeline(i, timeline, segment_bounds)
+        # The O_I and S ports go right below the component, each subtimeline below its
+        # own ports. The subtimelines are side by side, each in its own segment.
+        bounds = self._segment_bounds()
+        for group, left, right in zip(self.o_i_s_groups, bounds[:-1], bounds[1:]):
+            group.x, group.y = left, self.y + self.component_height
+            group.width = right - left
+            group.gap = self.subtimeline_gap
+            group.calc_layout()
+        self.height += max((group.height for group in self.o_i_s_groups), default=0)
 
     def _segment_bounds(self) -> list[float]:
         """x-boundaries of each subtimeline's segment: segment i spans [bounds[i],
@@ -239,38 +178,6 @@ class ComponentBlock(SvgBlock):
             bounds.append(bounds[-1] + timeline.width)
         bounds.append(self.component_x + self.component_width)
         return bounds
-
-    def _place_subtimeline(
-        self,
-        i: int,
-        timeline: "TimelineBlock",
-        segment_bounds: list[float],
-    ) -> None:
-        """Position `timeline`'s O_I/S ports (right below the component) and move it
-        into its segment."""
-        seg_x, seg_right = segment_bounds[i], segment_bounds[i + 1]
-        oi_ports = list(
-            self._ports_iter(Operator.O_I, timeline.node.timeline, reverse=False)
-        )
-        s_ports = list(
-            self._ports_iter(Operator.S, timeline.node.timeline, reverse=False)
-        )
-
-        oi_offset, s_offset = timeline.top_conduit_duct.port_offsets(self)
-        x0 = seg_x + oi_offset
-        for j, port in enumerate(oi_ports):
-            x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self.y + self.height)
-            self._port_segment_x[port.name] = seg_x
-
-        x0 = seg_right + s_offset
-        for j, port in enumerate(s_ports):
-            x = x0 + (j + 0.5) * settings.port_margin
-            self.port_positions[port.name] = (x, self.y + self.height)
-            self._port_segment_x[port.name] = seg_x
-
-        # Move subtimeline
-        timeline.moveto(seg_x, self._subtimeline_y)
 
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
@@ -306,16 +213,6 @@ class ComponentBlock(SvgBlock):
         group.elements.extend([component, text])
 
         # Draw ports
-        for ports, use_id in [
-            (self.f_init_ports, "#port-f_init"),
-            (self.o_f_ports, "#port-o_f"),
-            (self.o_i_ports, "#port-o_i"),
-            (self.s_ports, "#port-s"),
-        ]:
-            for port in ports:
-                x, y = self.port_positions[port.name]
-                title = svg.Title(text=str(port.name))
-                use = svg.Use(href=use_id, x=x, y=y, elements=[title])
-                group.elements.append(use)
+        group.elements.extend(port_group.to_svg() for port_group in self.port_groups)
 
         return group

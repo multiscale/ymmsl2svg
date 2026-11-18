@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Settings:
-    debug: bool = True
+    debug: bool = False
     """Enable debug visualizations."""
 
     model_border: float = 2
