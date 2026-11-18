@@ -16,6 +16,7 @@ from ymmsl2svg.settings import settings
 if TYPE_CHECKING:
     from ymmsl2svg.conduit_ducts import ConduitDuct
     from ymmsl2svg.timeline_block import TimelineBlock
+    from ymmsl2svg.timeline_layer import TimelineLayer
 
 
 class ComponentBlock(SvgBlock):
@@ -24,6 +25,7 @@ class ComponentBlock(SvgBlock):
     def __init__(
         self,
         component: Component,
+        layer: "TimelineLayer",
         subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
@@ -39,6 +41,8 @@ class ComponentBlock(SvgBlock):
 
         # Data
         self.component = component
+        self.layer = layer
+        """Timeline layer that this component is in."""
         self.subtimelines = subtimelines
         # TODO: support multiple subtimelines. This needs one HorizontalPortGroup per
         # subtimeline (each O_I/S port in the group of its timeline), placed side by
@@ -125,11 +129,7 @@ class ComponentBlock(SvgBlock):
         self.width = self.component_width + 2 * settings.port_size
         self.component_x = self.x + settings.port_size
 
-        self.component_height = max(
-            settings.component_height,
-            self.f_init_group.min_height(),
-            self.o_f_group.min_height(),
-        )
+        self.component_height = self.minimum_component_height
         self.height = self.component_height
 
         # The F_INIT and O_F ports go left and right of the component
@@ -146,6 +146,15 @@ class ComponentBlock(SvgBlock):
         self.o_i_s_group.width = self.component_width
         self.o_i_s_group.calc_layout()
         self.height += self.o_i_s_group.height
+
+    @property
+    def minimum_component_height(self) -> float:
+        """Minimum height of the component rectangle, to fit its F_INIT and O_F ports."""
+        return max(
+            settings.component_height,
+            self.f_init_group.minimum_height,
+            self.o_f_group.minimum_height,
+        )
 
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
