@@ -14,7 +14,19 @@ class TimelineLayer:
         self.timeline_blocks: list[TimelineBlock] = []
 
         self.conduitduct_height: float = 0
+        """Height of the tallest top conduit duct in this layer."""
         self.component_height: float = 0
+        """Height of the tallest component rectangle in this layer."""
+        self.port_group_height: float = 0
+        """Height of the O_I/S port groups below the component rectangles."""
+
+    @property
+    def height(self) -> float:
+        """Height of this layer: the top conduit duct, components and O_I/S ports.
+
+        The timelines in the next layer are placed directly below this height.
+        """
+        return self.conduitduct_height + self.component_height + self.port_group_height
 
     def next_layer(self) -> "TimelineLayer":
         """Get (and create as needed) the TimelineLayer below this one."""
@@ -35,9 +47,12 @@ class TimelineLayer:
             (tlb.top_conduit_duct.minimum_height for tlb in self.timeline_blocks),
             default=0,
         )
+        components = [c for tlb in self.timeline_blocks for c in tlb.components]
         self.component_height = max(
-            (c.minimum_height for tlb in self.timeline_blocks for c in tlb.components),
-            default=0,
+            (c.minimum_component_height for c in components), default=0
+        )
+        self.port_group_height = max(
+            (c.o_i_s_group.minimum_height for c in components), default=0
         )
 
         for timeline_block in self.timeline_blocks:

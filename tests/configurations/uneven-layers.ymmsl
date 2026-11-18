@@ -1,0 +1,51 @@
+ymmsl_version: v0.2
+
+# Two timeline layers, each with components of different heights: the extra F_INIT and
+# O_F ports make some components taller than the default height. Component rectangles
+# in the same layer should be vertically centered on each other, and the subtimelines
+# of macro and coupler should line up, even though they have a different number of
+# conduit lanes in their top conduit duct.
+models:
+  uneven_layers:
+    components:
+      setup:
+        description: Tall component in the first layer (many O_F ports)
+        ports:
+          o_f: p1 p2 p3 p4 p5 p6
+      macro:
+        description: Default height component with a subtimeline
+        ports:
+          f_init: init
+          o_i: output
+          s: input
+          o_f: final
+      coupler:
+        description: Tall component with a subtimeline (many F_INIT ports)
+        ports:
+          f_init: c1 c2 c3 c4 c5 c6 c7
+          o_i: output
+          s: input
+      micro_a:
+        description: Default height component in the second layer
+        ports:
+          f_init: input
+          o_f: output
+      micro_b:
+        description: Tall component in the second layer (many F_INIT ports)
+        ports:
+          f_init: in1 in2 in3 in4 in5 in6 in7 in8
+          o_f: output
+      micro_c:
+        description: Default height component in the second layer
+        ports:
+          f_init: input
+          o_f: output
+    conduits:
+      setup.p1: macro.init
+      setup.p2: coupler.c2
+      macro.output: [micro_a.input, micro_b.in2]
+      micro_a.output: micro_b.in1
+      micro_b.output: macro.input
+      macro.final: coupler.c1
+      coupler.output: micro_c.input
+      micro_c.output: coupler.input

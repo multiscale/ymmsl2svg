@@ -50,6 +50,7 @@ class TimelineBlock(SvgBlock):
             subtimelines = subtl_per_component.get(component.name, [])
             cblock = ComponentBlock(
                 component,
+                layer,
                 subtimelines,
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
@@ -107,17 +108,17 @@ class TimelineBlock(SvgBlock):
             item.x = width
             item.y = self.top_conduit_duct.height
             if isinstance(item, ComponentBlock):
-                # Center components in the timeline layer
-                item.y += (self.layer.component_height - item.minimum_height) // 2
+                # Center the component rectangles in the timeline layer
+                item.y += (
+                    self.layer.component_height - item.minimum_component_height
+                ) // 2
             item.calc_layout()
             width += item.width
 
         self.width = width
         self.top_conduit_duct.width = self.width
-        self.height = (
-            self.top_conduit_duct.height
-            + self.layer.component_height
-            + max((tl.height for tl in self.subtimelines), default=0)
+        self.height = self.layer.height + max(
+            (tl.height for tl in self.subtimelines), default=0
         )
 
     def moveto(self, x: float, y: float) -> None:
