@@ -155,6 +155,7 @@ class ComponentBlock(SvgBlock):
             self.f_init_group.minimum_height,
             self.o_f_group.minimum_height,
         )
+
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
         # This is intended to slightly overestimate the width (which is prettier than
