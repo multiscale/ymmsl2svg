@@ -147,6 +147,20 @@ class ComponentBlock(SvgBlock):
         self.o_i_s_group.calc_layout()
         self.height += self.o_i_s_group.height
 
+    @property
+    def minimum_height(self) -> float:
+        """The minimum height needed to draw the component and all ports."""
+        # TODO: check if we can get rid of code duplication with calc_layout
+        return (
+            max(
+                settings.component_height,
+                # FXIME: choose a consistent format (property or not, and naming):
+                self.f_init_group.min_height(),
+                self.o_f_group.min_height(),
+            )
+            + self.o_i_s_group.height
+        )
+
     def estimate_name_width(self) -> float:
         """Estimate the width (in pixels) of the component's name."""
         # This is intended to slightly overestimate the width (which is prettier than
