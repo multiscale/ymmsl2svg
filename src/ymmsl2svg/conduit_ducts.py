@@ -90,38 +90,25 @@ class VirtualPortPointInDuct:
     left: bool
     """Whether this is a virtual port on the left or on the right of the duct."""
 
+    frame: "TimelineBlock | None" = None
+    """Sibling subtimeline to give the position relative to, for a route drawn
+    inside that sibling (see TopConduitDuct._sibling_point_for). None gives the
+    position relative to the timeline containing the subtimeline."""
+
     @property
     def position(self) -> tuple[float, float]:
         """(x, y) coordinate of this point."""
         tlblock = self.tcd.tlblock
-        x_offset, y_offset = tlblock.offset
-        y = self.tcd.virtual_port_y(self.index) + y_offset
-        if self.left:
-            return (x_offset + tlblock.width, y)
-        return (x_offset, y)
+        x, y = tlblock.offset
+        x += tlblock.width if self.left else 0
+        y += self.tcd.virtual_port_y(self.index)
+        if self.frame is not None:
+            frame_x, frame_y = self.frame.offset
+            x, y = x - frame_x, y - frame_y
+        return (x, y)
 
 
-@dataclass
-class SiblingVirtualPortPoint:
-    """Point for a virtual port on a sibling subtimeline (of the same parent
-    component), relative to the frame of `frame` (see
-    TopConduitDuct._sibling_point_for).
-    """
-
-    frame: "TimelineBlock"
-    """Timeline whose coordinate frame the position is relative to."""
-    point: VirtualPortPointInDuct
-    """Virtual port on the sibling subtimeline."""
-
-    @property
-    def position(self) -> tuple[float, float]:
-        """(x, y) coordinate of this point."""
-        x, y = self.point.position
-        fx, fy = self.frame.offset
-        return (x - fx, y - fy)
-
-
-Point = VirtualPortPoint | VirtualPortPointInDuct | SiblingVirtualPortPoint | PortBlock
+Point = VirtualPortPoint | VirtualPortPointInDuct | PortBlock
 """Start / end point of a ConduitRoute."""
 
 
@@ -266,8 +253,7 @@ class TopConduitDuct(SvgBlock):
             return None
         tcd = siblings[idx + 1].top_conduit_duct
         vidx = tcd.add_virtual_port(conduit, left=True)
-        point = VirtualPortPointInDuct(tcd, vidx, left=False)
-        return SiblingVirtualPortPoint(self.tlblock, point)
+        return VirtualPortPointInDuct(tcd, vidx, left=False, frame=self.tlblock)
 
     def _exit_point_for(self, conduit: Conduit) -> Point:
         """Get the Point where `conduit`, which has no destination in this timeline,
