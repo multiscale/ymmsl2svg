@@ -3,9 +3,15 @@ from pathlib import Path
 
 import pytest
 import ymmsl
-from ymmsl.v0_2 import Configuration
+from ymmsl.v0_2 import Configuration, Model
 
-from ymmsl2svg.timeline_node import create_timeline_nodes
+from ymmsl2svg.model_block import ModelBlock
+
+
+def ordered_names(model: Model) -> list[str]:
+    """Names of the components in the model timeline, in drawing order."""
+    model_block = ModelBlock(model)
+    return [str(c.component.name) for c in model_block.timeline_block.components]
 
 
 def test_dispatch3_order():
@@ -16,9 +22,7 @@ def test_dispatch3_order():
     # Generate all six permutations of components, and check we order them correctly
     for perm in itertools.permutations(list(model.components.values())):
         model.components = {component.name: component for component in perm}
-        rootnode = create_timeline_nodes(model)
-        expected = ["first", "second", "third"]
-        assert [comp.name for comp in rootnode.components] == expected
+        assert ordered_names(model) == ["first", "second", "third"]
 
 
 @pytest.mark.xfail(
@@ -32,8 +36,6 @@ def test_timeline_bridge_order():
     # Generate all six permutations of components, and check we order them correctly
     for perm in itertools.permutations(list(model.components.values())):
         model.components = {component.name: component for component in perm}
-        rootnode = create_timeline_nodes(model)
-
         idx = {comp.name: i for i, comp in enumerate(perm)}
         expected = ["A", "bridge", "B"] if idx["A"] < idx["B"] else ["B", "bridge", "A"]
-        assert [comp.name for comp in rootnode.components] == expected
+        assert ordered_names(model) == expected

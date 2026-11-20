@@ -3,13 +3,12 @@ import sys
 from functools import cmp_to_key
 
 import svg
-from ymmsl.v0_2 import Conduit, Identifier, Model, Operator
+from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, Timeline, check_timelines
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
 from ymmsl2svg.timeline_layer import TimelineLayer
-from ymmsl2svg.timeline_node import create_timeline_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +34,20 @@ class ModelBlock(SvgBlock):
         }
 
         # Determine timelines
-        self.root_timeline_node = create_timeline_nodes(self.model)
+        if self.model.matching_timelines:
+            raise NotImplementedError(
+                "Visualization of matching timelines is not yet implemented."
+            )
+        self.timeline_checker = check_timelines(self.model)
+        for component in self.model.components.values():
+            component.timeline = self.timeline_checker.component_timeline(
+                component.name
+            )
 
         # Create graph components
         self.timeline_layer = TimelineLayer()
         self.timeline_block = TimelineBlock(
-            self.root_timeline_node, self.timeline_layer
+            self.model, self.timeline_checker, Timeline([]), self.timeline_layer
         )
 
         # Route conduits
@@ -133,6 +140,14 @@ class ModelBlock(SvgBlock):
             return -1 if k1 < k2 else 1
         return -1 if len(conduits1) < len(conduits2) else 1
 
+    def _earliest_sender(self, conduits: list[Conduit]) -> Conduit:
+        """Pick the conduit whose sender is earliest in the layout, to represent a port
+        fed by more than one conduit (convergecast) when sorting F_INIT/S ports."""
+        return min(
+            conduits,
+            key=lambda c: self.component_sort_keys.get(c.sending_component(), ()),
+        )
+
     def _input_cmp(self, conduits1: list[Conduit], conduits2: list[Conduit]) -> int:
         """Comparison function for sorting F_INIT and S ports."""
         # NOTE: F_INIT is sorted top->bottom, S left->right
@@ -141,16 +156,18 @@ class ModelBlock(SvgBlock):
             return 0 if not conduits2 else 1
         if not conduits2:
             return -1
-        # Input ports may have only one conduit:
-        assert len(conduits1) == len(conduits2) == 1
-        component1 = self.component_sort_keys.get(conduits1[0].sending_component(), ())
-        component2 = self.component_sort_keys.get(conduits2[0].sending_component(), ())
+        # A port may be fed by more than one conduit (convergecast); represent it by
+        # its earliest sender.
+        conduit1 = self._earliest_sender(conduits1)
+        conduit2 = self._earliest_sender(conduits2)
+        component1 = self.component_sort_keys.get(conduit1.sending_component(), ())
+        component2 = self.component_sort_keys.get(conduit2.sending_component(), ())
         if component1 == component2:
-            comp = self.components.get(conduits1[0].sending_component(), self)
-            port1 = conduits1[0].sending_port()
-            port2 = conduits2[0].sending_port()
+            comp = self.components.get(conduit1.sending_component(), self)
+            port1 = conduit1.sending_port()
+            port2 = conduit2.sending_port()
             return comp.cmp_ports(port1, port2)
-        destination = self.component_sort_keys[conduits1[0].receiving_component()]
+        destination = self.component_sort_keys[conduit1.receiving_component()]
         parent = destination[:-1]
         # Conduits coming from our parent component are always first
         if component1 == parent:
