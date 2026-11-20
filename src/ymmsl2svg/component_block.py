@@ -146,22 +146,24 @@ class ComponentBlock(SvgBlock):
 
         # The O_I and S ports go right below the component, the subtimelines below
         # them.
-        bounds = self._segment_bounds()
-        for i, subtl in enumerate(self.subtimelines):
-            subtl.place(
-                bounds[i], bounds[i + 1] - bounds[i], self.y + self.component_height
-            )
+        self._place_subtimelines()
         self.height += self.o_i_s_height
 
-    def _segment_bounds(self) -> list[float]:
-        """x-boundaries of each subtimeline's segment: segment i spans [bounds[i],
-        bounds[i + 1]), packed left to right by each subtimeline's own width. Leftover
-        width goes to the last segment."""
-        bounds = [self.component_x]
-        for timeline in self.subtimelines[:-1]:
-            bounds.append(bounds[-1] + timeline.width)
-        bounds.append(self.component_x + self.component_width)
-        return bounds
+    def _place_subtimelines(self) -> None:
+        """Place the subtimelines below this component, side by side from left to right.
+
+        Each subtimeline gets a segment of the component's width, as wide as the
+        subtimeline itself. Leftover width goes to the last segment.
+        """
+        x = self.component_x
+        top = self.y + self.component_height
+        for i, subtimeline in enumerate(self.subtimelines):
+            if i == len(self.subtimelines) - 1:
+                width = self.component_x + self.component_width - x
+            else:
+                width = subtimeline.width
+            subtimeline.place(x, width, top)
+            x += width
 
     @property
     def o_i_s_height(self) -> float:
