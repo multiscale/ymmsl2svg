@@ -1,6 +1,5 @@
 import heapq
 from collections.abc import Callable, Iterable, Iterator
-from typing import TYPE_CHECKING
 
 import svg
 from ymmsl.v0_2 import Component, Model, Operator, Port, Reference, Timeline
@@ -11,9 +10,6 @@ from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.port_groups import HorizontalPortGroup
 from ymmsl2svg.timeline_layer import TimelineLayer
-
-if TYPE_CHECKING:
-    from ymmsl2svg.port_groups import PortBlock
 
 
 class TimelineBlock(SvgBlock):
@@ -38,7 +34,9 @@ class TimelineBlock(SvgBlock):
         layer.add(self)
         self.parent = parent
 
-        self.transform: svg.Transform = svg.Translate(0, 0)
+        self.offset: tuple[float, float] = (0, 0)
+        """Position of this timeline in the frame of its parent's timeline (see
+        moveto)."""
 
         components = self._ordered_components(model, timeline_checker)
         self.top_conduit_duct = TopConduitDuct(self, timeline)
@@ -47,11 +45,8 @@ class TimelineBlock(SvgBlock):
         ]
 
         self.port_group: HorizontalPortGroup | None = None
-        if parent is not None:
-            self.port_group = HorizontalPortGroup(parent, self)
-            ports = self._ports_per_subtimeline(timeline_checker, parent.component)
-            for port in ports[timeline]:
-                self.port_group.add_port(port)
+        """O_I and S ports of the parent component in this timeline (set by
+        ComponentBlock.add_subtimeline), None for the root timeline."""
 
         # Create each component with the subtimelines that its O_I and S ports
         # send/receive in. The subtimelines must be attached before the next
@@ -62,11 +57,13 @@ class TimelineBlock(SvgBlock):
             cblock = ComponentBlock(
                 component, layer, self.conduit_ducts[i], self.conduit_ducts[i + 1]
             )
-            for subtimeline in self._ports_per_subtimeline(timeline_checker, component):
+            subtimeline_ports = self._ports_per_subtimeline(timeline_checker, component)
+            for subtimeline, ports in subtimeline_ports.items():
                 cblock.add_subtimeline(
                     TimelineBlock(
                         model, timeline_checker, subtimeline, layer.next_layer(), cblock
-                    )
+                    ),
+                    ports,
                 )
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
@@ -156,13 +153,6 @@ class TimelineBlock(SvgBlock):
         """All direct subtimelines, of all components in this timeline."""
         return [subtl for c in self.components for subtl in c.subtimelines]
 
-    @property
-    def ports(self) -> list["PortBlock"]:
-        """O_I and S ports of the parent component in this timeline."""
-        if self.port_group is None:
-            return []
-        return self.port_group.o_i_ports + self.port_group.s_ports
-
     def _iter_cd_and_components(self) -> Iterator[ConduitDuct | ComponentBlock]:
         """Iterate over all ConduitDucts and ComponentBlocks (left to right)."""
         for i, component in enumerate(self.components):
@@ -249,9 +239,9 @@ class TimelineBlock(SvgBlock):
         self.port_group.calc_layout()
 
     def moveto(self, x: float, y: float) -> None:
-        """Move the complete subtimeline by setting a translation filter on the
-        containing SVG group."""
-        self.transform = svg.Translate(x, y)
+        """Move the complete subtimeline, by translating the containing SVG group (see
+        to_svg)."""
+        self.offset = (x, y)
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing this timeline."""
@@ -264,7 +254,7 @@ class TimelineBlock(SvgBlock):
         group.elements.extend(tl.to_svg() for tl in self.subtimelines)
         group.elements.append(self.top_conduit_duct.to_svg())
         # Set translation
-        group.transform = [self.transform]
+        group.transform = [svg.Translate(*self.offset)]
         return group
 
 

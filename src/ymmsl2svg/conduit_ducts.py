@@ -78,25 +78,10 @@ class VirtualPortPoint:
         return (0 if self.left else self.tcd.width, self.tcd.virtual_port_y(self.index))
 
 
-def _translation(tlblock: "TimelineBlock") -> tuple[float, float]:
-    """Get the (x, y) offset of a TimelineBlock (see TimelineBlock.moveto)."""
-    transform = tlblock.transform
-    if not isinstance(transform, svg.Translate):
-        return 0, 0
-    x, y = transform.x, transform.y
-    assert isinstance(x, (float, int))
-    assert isinstance(y, (float, int))
-    return x, y
-
-
 @dataclass
 class VirtualPortPointInDuct:
-    """Point corresponding to a virtual port of a TopConduitDuct, from the
-    perspective of the timeline containing that subtimeline.
-
-    The point is on the edge of the subtimeline: with several subtimelines side by
-    side, that edge need not touch the ConduitDuct.
-    """
+    """Point corresponding to a virtual port of a TopConduitDuct, but from a Duct
+    perspective."""
 
     tcd: "TopConduitDuct"
     """TopConduitDuct that the virtual port belongs to."""
@@ -109,7 +94,7 @@ class VirtualPortPointInDuct:
     def position(self) -> tuple[float, float]:
         """(x, y) coordinate of this point."""
         tlblock = self.tcd.tlblock
-        x_offset, y_offset = _translation(tlblock)
+        x_offset, y_offset = tlblock.offset
         y = self.tcd.virtual_port_y(self.index) + y_offset
         if self.left:
             return (x_offset + tlblock.width, y)
@@ -132,7 +117,7 @@ class SiblingVirtualPortPoint:
     def position(self) -> tuple[float, float]:
         """(x, y) coordinate of this point."""
         x, y = self.point.position
-        fx, fy = _translation(self.frame)
+        fx, fy = self.frame.offset
         return (x - fx, y - fy)
 
 
