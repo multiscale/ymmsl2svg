@@ -63,17 +63,12 @@ class PortBlock:
         """Register a conduit connected to this port."""
         self.conduits.append(conduit)
 
-    def to_svg(self, dx: float = 0, dy: float = 0) -> svg.Use:
-        """Build the SVG representing this port.
-
-        Args:
-            dx, dy: Offset from the frame of the port position to the frame of the SVG
-                group that this port is drawn in.
-        """
+    def to_svg(self) -> svg.Use:
+        """Build the SVG representing this port."""
         return svg.Use(
             href=self._HREF[self.operator],
-            x=self.x + dx,
-            y=self.y + dy,
+            x=self.x,
+            y=self.y,
             elements=[svg.Title(text=str(self.name))],
         )
 
@@ -154,7 +149,9 @@ class HorizontalPortGroup(SvgBlock):
     A component has one of these per subtimeline, side by side below the component.
     """
 
-    def __init__(self, component: "ComponentBlock", subtimeline: "TimelineBlock") -> None:
+    def __init__(
+        self, component: "ComponentBlock", subtimeline: "TimelineBlock"
+    ) -> None:
         super().__init__()
         self.component = component
         """Component that these ports belong to."""
@@ -205,35 +202,30 @@ class HorizontalPortGroup(SvgBlock):
         return settings.port_size
 
     def calc_layout(self) -> None:
-        """Position the ports and move the subtimeline to its timeline layer.
+        """Position the ports.
 
-        self.x, self.y and self.width must be set by the ComponentBlock first.
+        self.x, self.y and self.width must be set by the TimelineBlock first.
         """
         self.height = self.minimum_height
-        # Ports are positioned in the frame of the subtimeline. The subtimeline is
-        # aligned with its timeline layer, so it may be lower than the bottom of this
-        # group: then port_y is negative and the conduits extend up to the ports.
-        subtimeline_y = self.component.layer.height
-        port_y = self.y + self.height - subtimeline_y
+        # The subtimeline may be lower than the bottom of this group (see
+        # TimelineBlock.place): then port_y is negative and the conduits extend up to
+        # the ports.
+        port_y = self.y + self.height
         assert port_y <= 0
         oi_offset, s_offset = self.subtimeline.top_conduit_duct.port_offsets(self)
         for ports, x0 in [
-            (self.o_i_ports, oi_offset),
-            (self.s_ports, self.width + s_offset),
+            (self.o_i_ports, self.x + oi_offset),
+            (self.s_ports, self.x + self.width + s_offset),
         ]:
             for i, port in enumerate(ports):
                 port.x = x0 + (i + 0.5) * settings.port_margin
                 port.y = port_y
-        self.subtimeline.moveto(self.x, subtimeline_y)
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing these ports."""
         group = super().to_svg()
         assert group.elements is not None
-        # From the frame of the subtimeline to the frame of the component's timeline:
-        dx, dy = self.x, self.component.layer.height
-        for port in self.o_i_ports + self.s_ports:
-            group.elements.append(port.to_svg(dx, dy))
+        group.elements.extend(port.to_svg() for port in self.o_i_ports + self.s_ports)
         return group
 
 

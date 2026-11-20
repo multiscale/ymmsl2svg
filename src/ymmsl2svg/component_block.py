@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import svg
-from ymmsl.v0_2 import Component, Conduit, Identifier, Operator, Reference, Timeline
+from ymmsl.v0_2 import Component, Conduit, Identifier, Operator
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.port_groups import (
@@ -26,10 +26,8 @@ class ComponentBlock(SvgBlock):
         self,
         component: Component,
         layer: "TimelineLayer",
-        subtimelines: list["TimelineBlock"],
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
-        port_timelines: dict[Reference, Timeline],
     ) -> None:
         super().__init__()
         # Geometry
@@ -44,45 +42,46 @@ class ComponentBlock(SvgBlock):
         self.component = component
         self.layer = layer
         """Timeline layer that this component is in."""
-        self.subtimelines = subtimelines
-        self.port_timelines = port_timelines
-        """Timeline (relative to the model) of each O_I and S port, by full port
-        reference (see TimelineNode.port_timelines)."""
 
         # Conduit connections to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
         self.right_conduit_duct = right_conduit_duct
         left_conduit_duct.add_right_connector(self)
         right_conduit_duct.add_left_connector(self)
-        # Each subtimeline gets its own slot in the same left/right ducts
-        for subtl in subtimelines:
-            left_conduit_duct.add_right_connector(subtl.top_conduit_duct)
-            right_conduit_duct.add_left_connector(subtl.top_conduit_duct)
 
         # Ports
         self.f_init_group = VerticalPortGroup(self, Operator.F_INIT)
         """F_INIT ports, on the left of the component."""
         self.o_f_group = VerticalPortGroup(self, Operator.O_F)
         """O_F ports, on the right of the component."""
-        self.o_i_s_groups = [HorizontalPortGroup(self, subtl) for subtl in subtimelines]
-        """O_I and S ports below the component, one group per subtimeline (in the same
-        order as self.subtimelines)."""
-        group_per_timeline = {
-            group.subtimeline.node.timeline: group for group in self.o_i_s_groups
-        }
-
         self.ports: dict[Identifier, PortBlock] = {}
         """All ports of this component, by name."""
 
         for port in component.ports.values():
             if port.operator is Operator.F_INIT:
-                port_block = self.f_init_group.add_port(port)
+                self.ports[port.name] = self.f_init_group.add_port(port)
             elif port.operator is Operator.O_F:
-                port_block = self.o_f_group.add_port(port)
-            else:
-                timeline = port_timelines[component.name + port.name]
-                port_block = group_per_timeline[timeline].add_port(port)
-            self.ports[port.name] = port_block
+                self.ports[port.name] = self.o_f_group.add_port(port)
+
+        self.subtimelines: list[TimelineBlock] = []
+        """Subtimelines below this component, from left to right. Each one holds the
+        O_I and S ports of this component that send/receive in it."""
+
+    def add_subtimeline(self, subtimeline: "TimelineBlock") -> None:
+        """Attach a subtimeline below this component (see TimelineBlock)."""
+        self.subtimelines.append(subtimeline)
+        # Each subtimeline gets its own slot in the same left/right ducts
+        self.left_conduit_duct.add_right_connector(subtimeline.top_conduit_duct)
+        self.right_conduit_duct.add_left_connector(subtimeline.top_conduit_duct)
+        for port_block in subtimeline.ports:
+            self.ports[port_block.name] = port_block
+
+    @property
+    def o_i_s_groups(self) -> list[HorizontalPortGroup]:
+        """O_I and S ports below the component, one group per subtimeline (in the same
+        order as self.subtimelines)."""
+        # Every subtimeline of a component has a port group, only the root has none
+        return [g for subtl in self.subtimelines if (g := subtl.port_group) is not None]
 
     @property
     def port_groups(self) -> list[PortGroup]:
@@ -144,11 +143,10 @@ class ComponentBlock(SvgBlock):
         # The O_I and S ports go right below the component, the subtimelines below
         # them. Each subtimeline (with its port group) gets its own segment.
         bounds = self._segment_bounds()
-        for i, port_group in enumerate(self.o_i_s_groups):
-            port_group.x = bounds[i]
-            port_group.y = self.y + self.component_height
-            port_group.width = bounds[i + 1] - bounds[i]
-            port_group.calc_layout()
+        for i, subtl in enumerate(self.subtimelines):
+            subtl.place(
+                bounds[i], bounds[i + 1] - bounds[i], self.y + self.component_height
+            )
         self.height += self.o_i_s_height
 
     def _segment_bounds(self) -> list[float]:
@@ -209,6 +207,6 @@ class ComponentBlock(SvgBlock):
         group.elements.extend([component, text])
 
         # Draw ports
-        group.elements.extend(port_group.to_svg() for port_group in self.port_groups)
+        group.elements.extend([self.f_init_group.to_svg(), self.o_f_group.to_svg()])
 
         return group

@@ -497,9 +497,9 @@ class TopConduitDuct(SvgBlock):
         the Point (relative to this timeline) of the virtual port on that sibling,
         or None if there is no sibling to our right.
         """
-        if not self.top_port_groups:
+        if self.tlblock.parent is None:
             return None
-        siblings = self.top_port_groups[0].component.subtimelines
+        siblings = self.tlblock.parent.subtimelines
         idx = siblings.index(self.tlblock)
         if idx == len(siblings) - 1:
             return None
@@ -845,7 +845,8 @@ class ConduitDuct(SvgBlock):
         # Always enter via the first (duct-adjacent) subtimeline. If the destination
         # lives in a later sibling, that subtimeline's own routing hands the conduit
         # on (see TopConduitDuct._sibling_point_for).
-        connector = connector.top_port_groups[0].component.subtimelines[0]
+        assert connector.tlblock.parent is not None
+        connector = connector.tlblock.parent.subtimelines[0]
         connector = connector.top_conduit_duct
         vidx = connector.add_virtual_port(conduit, left=True)
         return VirtualPortPointInDuct(connector, vidx, left=False)
