@@ -51,9 +51,7 @@ class TimelineLayer:
         self.component_height = max(
             (c.minimum_component_height for c in components), default=0
         )
-        self.port_group_height = max(
-            (c.o_i_s_height for c in components), default=0
-        )
+        self.port_group_height = max((c.o_i_s_height for c in components), default=0)
 
         for timeline_block in self.timeline_blocks:
             timeline_block.calc_layout()

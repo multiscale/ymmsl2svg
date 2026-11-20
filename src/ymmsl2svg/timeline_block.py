@@ -10,7 +10,6 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.port_groups import HorizontalPortGroup
-from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_layer import TimelineLayer
 
 if TYPE_CHECKING:
@@ -71,14 +70,6 @@ class TimelineBlock(SvgBlock):
                 )
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
-
-        # A subtimeline has one parent component: each timeline that the ports of a
-        # component send/receive in includes the name of that component.
-        subtimelines = [subtl.timeline for subtl in self.subtimelines]
-        if len(set(subtimelines)) != len(subtimelines):
-            raise NotImplementedError(
-                "Visualization for interact coupling is not yet implemented."
-            )
 
     def _ordered_components(
         self, model: Model, timeline_checker: TimelineChecker
@@ -213,39 +204,10 @@ class TimelineBlock(SvgBlock):
     def route_conduits(self) -> None:
         self.top_conduit_duct.route_conduits()
 
-    def _boundary_duct_padding(self) -> tuple[float, float, float]:
-        """Padding to center a lone component in this row, so that its O_I and S
-        ports are at the same distance from the edges of its parent component.
-
-        Returns (leading_first, extra_first, extra_last): leading_first is inserted
-        before vlanes_in of the first duct (which moves the O_I ports along), the
-        others are added to the end of the first/last duct.
-        """
-        if len(self.components) != 1:
-            return 0.0, 0.0, 0.0
-        first_duct, last_duct = self.conduit_ducts[0], self.conduit_ducts[-1]
-        first_duct.calc_layout()
-        last_duct.calc_layout()
-        if not self.top_conduit_duct.vlanes_in_is_own():
-            # vlanes_in can't be moved without misaligning other conduits: only
-            # center the component itself
-            extra_first = max(0.0, last_duct.width - first_duct.width)
-            extra_last = max(0.0, first_duct.width - last_duct.width)
-            return 0.0, extra_first, extra_last
-        # The first O_I port is nearest to the left edge, but the first S port is
-        # furthest from the right edge: correct for the width of the S ports.
-        bias = self.top_conduit_duct.own_s_port_count() * settings.port_margin
-        target = max(first_duct.width_before_vlanes_in(), last_duct.width - bias)
-        leading_first = max(0.0, target - first_duct.width_before_vlanes_in())
-        extra_last = max(0.0, (target + bias) - last_duct.width)
-        return leading_first, 0.0, extra_last
-
     def calc_layout(self) -> None:
         """Calculate the size and layout of the timeline block and its contents."""
         self.top_conduit_duct.calc_layout()
         self.top_conduit_duct.height = self.layer.conduitduct_height
-
-        leading_first, extra_first, extra_last = self._boundary_duct_padding()
 
         width = 0
         for item in self._iter_cd_and_components():
@@ -256,13 +218,7 @@ class TimelineBlock(SvgBlock):
                 item.y += (
                     self.layer.component_height - item.minimum_component_height
                 ) // 2
-            if item is self.conduit_ducts[0]:
-                item.calc_layout(leading_pad=leading_first)
-                item.width += extra_first
-            else:
-                item.calc_layout()
-            if item is self.conduit_ducts[-1]:
-                item.width += extra_last
+            item.calc_layout()
             width += item.width
 
         self.width = width

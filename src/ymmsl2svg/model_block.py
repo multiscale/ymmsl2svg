@@ -62,15 +62,11 @@ class ModelBlock(SvgBlock):
         self.timeline_block.route_conduits()
         self.calc_layout()
 
-        # Get indices of our O_F ports so we can draw them in to_svg(). Routing
-        # groups these by receiver (see TopConduitDuct._route_to_sibling_or_parent),
-        # so use the same key here.
+        # Get indices of our O_F ports so we can draw them in to_svg()
         tcd = self.timeline_block.top_conduit_duct
         for port in self.o_f_ports:
             for conduit in self.conduits_per_port[port.name]:
-                self.port_indices[port.name] = tcd.add_virtual_port(
-                    conduit, left=False, key=conduit.receiver
-                )
+                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
         # We currently don't support drawing model S or O_I ports:
         if self.s_ports or self.o_i_ports:
             logger.warning(
@@ -210,21 +206,18 @@ class ModelBlock(SvgBlock):
         )
         group.elements.append(model_block)
         # Draw ports
-        tcd = self.timeline_block.top_conduit_duct
         for portname, idx in self.port_indices.items():
             port = self.model.ports[portname]
             title = svg.Title(text=str(port.name))
-            # Line up with the root timeline's virtual port (the timeline_block is
-            # offset by 2 * pm, see calc_layout)
-            left = port.operator == Operator.F_INIT
-            y = 2 * pm + tcd.vport_y(left, idx)
-            if left:
+            if port.operator == Operator.F_INIT:
                 useid = "#port-f_init"
                 x = pm - settings.port_size
+                y = (2.5 + idx) * pm
                 path: list[svg.PathData] = [svg.M(pm, y), svg.h(pm)]
-            else:
+            elif port.operator == Operator.O_F:
                 useid = "#port-o_f"
                 x = self.width - pm + settings.port_size
+                y = (2.5 + idx) * pm
                 path: list[svg.PathData] = [svg.M(self.width - pm, y), svg.h(-pm)]
             use = svg.Use(href=useid, x=x, y=y, elements=[title])
             group.elements.append(use)
