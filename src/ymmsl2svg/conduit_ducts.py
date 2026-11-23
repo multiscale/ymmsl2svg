@@ -376,7 +376,7 @@ class TopConduitDuct(SvgBlock):
             len(self._hlanes) + len(self._hlanes_for_s) + len(self._hlanes_for_oi)
         )
         if num_lanes:
-            return num_lanes * settings.conduit_margin
+            return (num_lanes + 1) * settings.conduit_margin
         return 0
 
     def to_svg(self) -> svg.G:

@@ -130,7 +130,6 @@ class ComponentBlock(SvgBlock):
         self.component_x = self.x + settings.port_size
 
         self.component_height = self.minimum_component_height
-        self.height = self.component_height
 
         # The F_INIT and O_F ports go left and right of the component
         for group, x in [
@@ -145,7 +144,7 @@ class ComponentBlock(SvgBlock):
         self.o_i_s_group.y = self.y + self.component_height
         self.o_i_s_group.width = self.component_width
         self.o_i_s_group.calc_layout()
-        self.height += self.o_i_s_group.height
+        self.height = self.component_height + self.o_i_s_group.height
 
     @property
     def minimum_component_height(self) -> float:
