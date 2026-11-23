@@ -3,12 +3,13 @@ import sys
 from functools import cmp_to_key
 
 import svg
-from ymmsl.v0_2 import Conduit, Identifier, Model, Operator, Timeline, check_timelines
+from ymmsl.v0_2 import Conduit, Identifier, Model, Operator
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
 from ymmsl2svg.timeline_layer import TimelineLayer
+from ymmsl2svg.timeline_tree import build_timeline_tree
 
 logger = logging.getLogger(__name__)
 
@@ -34,20 +35,12 @@ class ModelBlock(SvgBlock):
         }
 
         # Determine timelines
-        if self.model.matching_timelines:
-            raise NotImplementedError(
-                "Visualization of matching timelines is not yet implemented."
-            )
-        self.timeline_checker = check_timelines(self.model)
-        for component in self.model.components.values():
-            component.timeline = self.timeline_checker.component_timeline(
-                component.name
-            )
+        self.root_timeline_tree = build_timeline_tree(self.model)
 
         # Create graph components
         self.timeline_layer = TimelineLayer()
         self.timeline_block = TimelineBlock(
-            self.model, self.timeline_checker, Timeline([]), self.timeline_layer
+            self.root_timeline_tree, self.timeline_layer
         )
 
         # Route conduits

@@ -1,15 +1,14 @@
-import heapq
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 
 import svg
-from ymmsl.v0_2 import Component, Model, Operator, Port, Reference, Timeline
-from ymmsl.v0_2.timeline_resolver import TimelineChecker
+from ymmsl.v0_2 import Reference
 
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.port_groups import HorizontalPortGroup
 from ymmsl2svg.timeline_layer import TimelineLayer
+from ymmsl2svg.timeline_tree import TimelineTree
 
 
 class TimelineBlock(SvgBlock):
@@ -21,15 +20,17 @@ class TimelineBlock(SvgBlock):
 
     def __init__(
         self,
-        model: Model,
-        timeline_checker: TimelineChecker,
-        timeline: Timeline,
+        tree: TimelineTree,
         layer: TimelineLayer,
         parent: ComponentBlock | None = None,
     ) -> None:
         super().__init__()
 
-        self.timeline = timeline
+        self.tree = tree
+        if len(tree.parent_components) > 1:
+            raise NotImplementedError(
+                "Visualization for interact coupling is not yet implemented."
+            )
         self.layer = layer
         layer.add(self)
         self.parent = parent
@@ -38,115 +39,32 @@ class TimelineBlock(SvgBlock):
         """Position of this timeline in the frame of its parent's timeline (see
         moveto)."""
 
-        components = self._ordered_components(model, timeline_checker)
-        self.top_conduit_duct = TopConduitDuct(self, timeline)
+        self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
-            ConduitDuct(self.top_conduit_duct) for _ in range(len(components) + 1)
+            ConduitDuct(self.top_conduit_duct) for _ in range(len(tree.components) + 1)
         ]
 
         self.port_group: HorizontalPortGroup | None = None
         """O_I and S ports of the parent component in this timeline (set by
         ComponentBlock.add_subtimeline), None for the root timeline."""
 
-        # Create each component with the subtimelines that its O_I and S ports
-        # send/receive in. The subtimelines must be attached before the next
-        # component is created, as the conduit ducts number their connectors in
-        # order of registration.
+        # Order of components is determined by TimelineTree. Each component is
+        # created with the subtimelines that its O_I and S ports send/receive in.
+        # The subtimelines must be attached before the next component is created, as
+        # the conduit ducts number their connectors in order of registration.
         self.components: list[ComponentBlock] = []
-        for i, component in enumerate(components):
+        for i, component in enumerate(tree.components):
             cblock = ComponentBlock(
                 component, layer, self.conduit_ducts[i], self.conduit_ducts[i + 1]
             )
-            subtimeline_ports = self._ports_per_subtimeline(timeline_checker, component)
-            for subtimeline, ports in subtimeline_ports.items():
-                cblock.add_subtimeline(
-                    TimelineBlock(
-                        model, timeline_checker, subtimeline, layer.next_layer(), cblock
-                    ),
-                    ports,
-                )
+            for subtree in tree.children.values():
+                if component in subtree.parent_ports:
+                    cblock.add_subtimeline(
+                        TimelineBlock(subtree, layer.next_layer(), cblock),
+                        subtree.parent_ports[component],
+                    )
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
-
-    def _ordered_components(
-        self, model: Model, timeline_checker: TimelineChecker
-    ) -> list[Component]:
-        """Components in this timeline, in drawing order (left to right).
-
-        A component that sends to an F_INIT port of another component (or of a
-        component in its subtimelines) is drawn to the left of it. Model order is
-        used as tie breaker.
-        """
-        components = []
-        for component in model.components.values():
-            assert component.timeline is not None, "Component timelines are not set"
-            if component.timeline.parent == self.timeline:
-                components.append(component)
-        index = {component: i for i, component in enumerate(components)}
-
-        dependencies: set[tuple[int, int]] = set()
-        for conduit in model.conduits:
-            if not conduit.sending_component() or not conduit.receiving_component():
-                continue  # Ignore model ports
-            receiver = model.components[conduit.receiving_component()]
-            if receiver.ports[conduit.receiving_port()].operator is not Operator.F_INIT:
-                continue
-            sender = model.components[conduit.sending_component()]
-            # Both sender and receiver must be in our timeline, or a subtimeline
-            sender_ancestor = self._ancestor(components, timeline_checker, sender)
-            receiver_ancestor = self._ancestor(components, timeline_checker, receiver)
-            if sender_ancestor is None or receiver_ancestor is None:
-                continue
-            if sender_ancestor is not receiver_ancestor:
-                dependencies.add((index[sender_ancestor], index[receiver_ancestor]))
-
-        order = _topological_sort(dependencies, len(components))
-        return [components[i] for i in order]
-
-    @staticmethod
-    def _ports_per_subtimeline(
-        timeline_checker: TimelineChecker, component: Component
-    ) -> dict[Timeline, list[Port]]:
-        """O_I and S ports of a component, by the subtimeline (relative to the model)
-        that they send/receive in, in order of the ports."""
-        result: dict[Timeline, list[Port]] = {}
-        for port in component.ports.values():
-            if port.operator in (Operator.O_I, Operator.S):
-                timeline = timeline_checker.timeline_for_port(
-                    component.name + port.name
-                )
-                result.setdefault(timeline, []).append(port)
-        return result
-
-    def _ancestor(
-        self,
-        components: list[Component],
-        timeline_checker: TimelineChecker,
-        component: Component,
-    ) -> Component | None:
-        """The component in this timeline that component is, or is nested in.
-
-        Args:
-            components: Components in this timeline.
-            timeline_checker: ymmsl's checker of the model timelines.
-            component: Component to get the ancestor of.
-
-        Returns:
-            None if component is not in this timeline or one of its subtimelines.
-        """
-        assert component.timeline is not None
-        if component.timeline.parent == self.timeline:
-            return component
-        try:
-            relative = component.timeline.parent.relative_to(self.timeline)
-        except ValueError:  # component is not in a subtimeline
-            return None
-        subtimeline = self.timeline + relative[0]
-        for candidate in components:
-            ports = self._ports_per_subtimeline(timeline_checker, candidate)
-            if subtimeline in ports:
-                return candidate
-        return None
 
     @property
     def subtimelines(self) -> list["TimelineBlock"]:
@@ -256,32 +174,3 @@ class TimelineBlock(SvgBlock):
         # Set translation
         group.transform = [svg.Translate(*self.offset)]
         return group
-
-
-def _topological_sort(dependencies: Iterable[tuple[int, int]], num: int) -> list[int]:
-    """Sort nodes 0..num-1 topologically, use node number as tie breaker.
-
-    Algorithm based on networkx.algorithms.dag.lexicographical_topological_sort, see
-    https://networkx.org/documentation/stable/_modules/networkx/algorithms/dag.html#lexicographical_topological_sort
-    """
-    dependencies = list(dependencies)
-    indegrees = [0] * num
-    for _, to in dependencies:
-        indegrees[to] += 1
-    zero_indegree = [i for i in range(num) if indegrees[i] == 0]
-    heapq.heapify(zero_indegree)
-
-    order = []
-    while zero_indegree:
-        node = heapq.heappop(zero_indegree)
-        order.append(node)
-        for from_, to in dependencies:
-            if from_ != node:
-                continue
-            indegrees[to] -= 1
-            if indegrees[to] == 0:
-                heapq.heappush(zero_indegree, to)
-
-    if any(indegrees):
-        raise ValueError("Graph contains a cycle")
-    return order
