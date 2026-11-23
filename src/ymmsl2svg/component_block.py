@@ -134,7 +134,6 @@ class ComponentBlock(SvgBlock):
         self.component_x = self.x + settings.port_size
 
         self.component_height = self.minimum_component_height
-        self.height = self.component_height
 
         # The F_INIT and O_F ports go left and right of the component
         for group, x in [
@@ -147,7 +146,7 @@ class ComponentBlock(SvgBlock):
         # The O_I and S ports go right below the component, the subtimelines below
         # them.
         self._place_subtimelines()
-        self.height += self.o_i_s_height
+        self.height = self.component_height + self.o_i_s_height
 
     def _place_subtimelines(self) -> None:
         """Place the subtimelines below this component, side by side from left to right.
