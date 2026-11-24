@@ -9,6 +9,7 @@ from ymmsl2svg.settings import settings
 
 if TYPE_CHECKING:
     from ymmsl2svg.component_block import ComponentBlock
+    from ymmsl2svg.conduit_ducts import Lane
     from ymmsl2svg.timeline_block import TimelineBlock
 
 
@@ -33,6 +34,9 @@ class PortBlock:
         """x-position of the port, see class docs for the frame."""
         self.y: float = 0
         """y-position of the port, see class docs for the frame."""
+        self.lane: Lane | None = None
+        """For an O_I or S port: lane of the column of the subtimeline that its
+        conduits go straight down/up to, if any (set by the ConduitRouter)."""
 
     @property
     def component(self) -> "ComponentBlock":
@@ -58,6 +62,12 @@ class PortBlock:
     def position(self) -> tuple[float, float]:
         """(x, y) position of the port, see class docs for the frame."""
         return (self.x, self.y)
+
+    @property
+    def absolute_position(self) -> tuple[float, float]:
+        """(x, y) position of the port, in the frame of the model."""
+        x, y = self.group.frame.origin
+        return (x + self.x, y + self.y)
 
     def add_conduit(self, conduit: Conduit) -> None:
         """Register a conduit connected to this port."""
@@ -86,6 +96,11 @@ class VerticalPortGroup(SvgBlock):
         """Operator of the ports: F_INIT (left side) or O_F (right side)."""
         self._ports: list[PortBlock] = []
         """Ports, from top to bottom."""
+
+    @property
+    def frame(self) -> "TimelineBlock":
+        """Timeline whose frame the ports are positioned in."""
+        return self.component.timeline
 
     def add_port(self, port: Port) -> PortBlock:
         """Add a port to this group and return its PortBlock."""
@@ -161,7 +176,11 @@ class HorizontalPortGroup(SvgBlock):
         """O_I ports, from left to right."""
         self.s_ports: list[PortBlock] = []
         """S ports, from left to right."""
-        subtimeline.top_conduit_duct.add_port_group(self)
+
+    @property
+    def frame(self) -> "TimelineBlock":
+        """Timeline whose frame the ports are positioned in."""
+        return self.subtimeline
 
     @property
     def name(self) -> Reference:
@@ -212,14 +231,25 @@ class HorizontalPortGroup(SvgBlock):
         # the ports.
         port_y = self.y + self.height
         assert port_y <= 0
-        oi_offset, s_offset = self.subtimeline.top_conduit_duct.port_offsets(self)
-        for ports, x0 in [
-            (self.o_i_ports, self.x + oi_offset),
-            (self.s_ports, self.x + self.width + s_offset),
-        ]:
-            for i, port in enumerate(ports):
-                port.x = x0 + (i + 0.5) * settings.port_margin
-                port.y = port_y
+        # A port whose conduits go straight down (O_I) or up (S) to a column of the
+        # subtimeline is placed above its lane in that column. The other O_I ports go
+        # to the right of the first column, the other S ports to the left of the last.
+        first = self.subtimeline.conduit_ducts[0]
+        last = self.subtimeline.conduit_ducts[-1]
+        o_i_x = first.x + first.width + settings.lane_margin / 2
+        s_x = last.x - settings.lane_margin / 2
+        for port in self.o_i_ports:
+            if port.lane is not None:
+                port.x = port.lane.local_pos
+            else:
+                port.x, o_i_x = o_i_x, o_i_x + settings.lane_margin
+            port.y = port_y
+        for port in reversed(self.s_ports):
+            if port.lane is not None:
+                port.x = port.lane.local_pos
+            else:
+                port.x, s_x = s_x, s_x - settings.lane_margin
+            port.y = port_y
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing these ports."""

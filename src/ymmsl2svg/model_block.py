@@ -6,6 +6,8 @@ import svg
 from ymmsl.v0_2 import Conduit, Identifier, Model, Operator
 
 from ymmsl2svg.base import SvgBlock
+from ymmsl2svg.conduit_ducts import TopConduitDuct
+from ymmsl2svg.conduit_router import ConduitRouter
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
 from ymmsl2svg.timeline_layer import TimelineLayer
@@ -39,8 +41,9 @@ class ModelBlock(SvgBlock):
 
         # Create graph components
         self.timeline_layer = TimelineLayer()
+        self.top_conduit_duct = TopConduitDuct(None)
         self.timeline_block = TimelineBlock(
-            self.root_timeline_tree, self.timeline_layer
+            self.root_timeline_tree, self.timeline_layer, self.top_conduit_duct
         )
 
         # Route conduits
@@ -52,14 +55,9 @@ class ModelBlock(SvgBlock):
             if sending_component != receiving_component:
                 self.components.get(receiving_component, self).add_conduit(conduit)
         self.sort_ports_and_conduits()
-        self.timeline_block.route_conduits()
+        self.router = ConduitRouter(self)
         self.calc_layout()
 
-        # Get indices of our O_F ports so we can draw them in to_svg()
-        tcd = self.timeline_block.top_conduit_duct
-        for port in self.o_f_ports:
-            for conduit in self.conduits_per_port[port.name]:
-                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=False)
         # We currently don't support drawing model S or O_I ports:
         if self.s_ports or self.o_i_ports:
             logger.warning(
@@ -95,18 +93,23 @@ class ModelBlock(SvgBlock):
                 reverse=True,
             )
 
-        # Reserve space in the top conduit duct for our (now-sorted) F_INIT ports:
-        tcd = self.timeline_block.top_conduit_duct
-        for port in self.f_init_ports:
-            for conduit in self.conduits_per_port[port.name]:
-                self.port_indices[port.name] = tcd.add_virtual_port(conduit, left=True)
+        self.port_indices = {port.name: i for i, port in enumerate(self.f_init_ports)}
 
         if settings.resequence_ports:
             # Sort output ports of all components:
             self.timeline_block.sort_output_ports(output_sort_key)
             # And then input ports
             self.timeline_block.sort_input_ports(cmp_to_key(self._input_cmp))
-            # N.B. Model O_F ports are sorted by default by the conduit routing algo.
+            # Model O_F ports: those fed by earlier components go first
+            self.o_f_ports.sort(
+                key=lambda port: min(
+                    (
+                        self.component_sort_keys.get(c.sending_component(), ())
+                        for c in self.conduits_per_port[port.name]
+                    ),
+                    default=(),
+                )
+            )
 
     def _sorted_component_keys(self, conduits: list[Conduit]) -> list[tuple[int, ...]]:
         """Return sorted component keys of the conduit receivers."""
@@ -167,12 +170,24 @@ class ModelBlock(SvgBlock):
         """Comparison function for model ports"""
         return -1 if self.port_indices[port1] < self.port_indices[port2] else 1
 
+    def stacked_ports(self, operator: Operator) -> list[Identifier]:
+        """Names of the connected F_INIT or O_F model ports, from top to bottom (see
+        ConduitRouter._model_port_lanes)."""
+        ports = self.f_init_ports if operator is Operator.F_INIT else self.o_f_ports
+        return [port.name for port in ports if self.conduits_per_port[port.name]]
+
     def calc_layout(self) -> None:
         """Calculate layout of all internal components"""
+        pm = settings.port_margin
         self.timeline_layer.calc_layout()
-        self.width = self.timeline_block.width + 4 * settings.port_margin
-        self.height = self.timeline_block.height + 4 * settings.port_margin
-        self.timeline_block.moveto(2 * settings.port_margin, 2 * settings.port_margin)
+        self.width = self.timeline_block.width + 4 * pm
+        self.height = self.timeline_block.height + 4 * pm
+        self.timeline_block.moveto(2 * pm, 2 * pm)
+        self.timeline_block.calc_origin((0, 0))
+        duct = self.top_conduit_duct
+        duct.x, duct.y = 2 * pm, 2 * pm
+        duct.width = self.timeline_block.width
+        duct.height = self.timeline_layer.conduitduct_height
 
     def to_svg(self) -> svg.G:
         pm = settings.port_margin
@@ -188,22 +203,18 @@ class ModelBlock(SvgBlock):
             elements=[svg.Title(text=f"Model: {self.model.name}")],
         )
         group.elements.append(model_block)
-        # Draw ports
-        for portname, idx in self.port_indices.items():
-            port = self.model.ports[portname]
-            title = svg.Title(text=str(port.name))
-            if port.operator == Operator.F_INIT:
-                useid = "#port-f_init"
-                x = pm - settings.port_size
-                y = (2.5 + idx) * pm
-                path: list[svg.PathData] = [svg.M(pm, y), svg.h(pm)]
-            elif port.operator == Operator.O_F:
-                useid = "#port-o_f"
-                x = self.width - pm + settings.port_size
-                y = (2.5 + idx) * pm
-                path: list[svg.PathData] = [svg.M(self.width - pm, y), svg.h(-pm)]
-            use = svg.Use(href=useid, x=x, y=y, elements=[title])
-            group.elements.append(use)
-            group.elements.append(svg.Path(d=path, class_=["conduit"]))
+        # Draw the connected F_INIT and O_F ports
+        for operator in (Operator.F_INIT, Operator.O_F):
+            for name in self.stacked_ports(operator):
+                _, y = self.router.model_port_position(name)
+                if operator is Operator.F_INIT:
+                    useid, x = "#port-f_init", pm - settings.port_size
+                else:
+                    useid, x = "#port-o_f", self.width - pm + settings.port_size
+                title = svg.Title(text=str(name))
+                group.elements.append(svg.Use(href=useid, x=x, y=y, elements=[title]))
         group.elements.append(self.timeline_block.to_svg())
+        # After the root timeline, which it lies on top of
+        group.elements.append(self.top_conduit_duct.to_svg())
+        group.elements.append(self.router.to_svg())
         return group

@@ -22,6 +22,7 @@ class TimelineBlock(SvgBlock):
         self,
         tree: TimelineTree,
         layer: TimelineLayer,
+        top_conduit_duct: TopConduitDuct,
         parent: ComponentBlock | None = None,
     ) -> None:
         super().__init__()
@@ -38,31 +39,34 @@ class TimelineBlock(SvgBlock):
         self.offset: tuple[float, float] = (0, 0)
         """Position of this timeline in the frame of its parent's timeline (see
         moveto)."""
+        self.origin: tuple[float, float] = (0, 0)
+        """Position of this timeline in the frame of the model (see calc_origin)."""
 
-        self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
+        self.top_conduit_duct = top_conduit_duct
+        """Row for conduits above this timeline, shared with its sibling subtimelines
+        (owned by the parent component, or the model for the root timeline)."""
         self.conduit_ducts: list[ConduitDuct] = [
-            ConduitDuct(self.top_conduit_duct) for _ in range(len(tree.components) + 1)
+            ConduitDuct(self) for _ in range(len(tree.components) + 1)
         ]
+        """Columns for conduits left and right of each component."""
 
         self.port_group: HorizontalPortGroup | None = None
         """O_I and S ports of the parent component in this timeline (set by
         ComponentBlock.add_subtimeline), None for the root timeline."""
 
-        # Order of components is determined by TimelineTree. Each component is
-        # created with the subtimelines that its O_I and S ports send/receive in.
-        # The subtimelines must be attached before the next component is created, as
-        # the conduit ducts number their connectors in order of registration.
+        # Order of components is determined by TimelineTree. Each component gets the
+        # subtimelines that its O_I and S ports send/receive in.
         self.components: list[ComponentBlock] = []
         for i, component in enumerate(tree.components):
             cblock = ComponentBlock(
-                component, layer, self.conduit_ducts[i], self.conduit_ducts[i + 1]
+                component, self, self.conduit_ducts[i], self.conduit_ducts[i + 1]
             )
             for subtree in tree.children.values():
                 if component in subtree.parent_ports:
-                    cblock.add_subtimeline(
-                        TimelineBlock(subtree, layer.next_layer(), cblock),
-                        subtree.parent_ports[component],
+                    subtimeline = TimelineBlock(
+                        subtree, layer.next_layer(), cblock.subtimeline_duct, cblock
                     )
+                    cblock.add_subtimeline(subtimeline, subtree.parent_ports[component])
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
 
@@ -109,18 +113,12 @@ class TimelineBlock(SvgBlock):
         for subtimeline in self.subtimelines:
             subtimeline.sort_input_ports(key)
 
-    def route_conduits(self) -> None:
-        self.top_conduit_duct.route_conduits()
-
     def calc_layout(self) -> None:
         """Calculate the size and layout of the timeline block and its contents."""
-        self.top_conduit_duct.calc_layout()
-        self.top_conduit_duct.height = self.layer.conduitduct_height
-
         width = 0
         for item in self._iter_cd_and_components():
             item.x = width
-            item.y = self.top_conduit_duct.height
+            item.y = self.layer.conduitduct_height
             if isinstance(item, ComponentBlock):
                 # Center the component rectangles in the timeline layer
                 item.y += (
@@ -130,10 +128,12 @@ class TimelineBlock(SvgBlock):
             width += item.width
 
         self.width = width
-        self.top_conduit_duct.width = self.width
         self.height = self.layer.height + max(
             (tl.height for tl in self.subtimelines), default=0
         )
+        # The columns run from the row above this timeline down to its bottom
+        for duct in self.conduit_ducts:
+            duct.height = self.height - duct.y
 
     def place(self, x: float, width: float, top: float) -> None:
         """Place this subtimeline below its parent component, and lay out the parent's
@@ -161,6 +161,16 @@ class TimelineBlock(SvgBlock):
         to_svg)."""
         self.offset = (x, y)
 
+    def calc_origin(self, parent_origin: tuple[float, float]) -> None:
+        """Set the position of this timeline and its subtimelines in the frame of the
+        model, given the position of the parent's timeline."""
+        self.origin = (
+            parent_origin[0] + self.offset[0],
+            parent_origin[1] + self.offset[1],
+        )
+        for subtimeline in self.subtimelines:
+            subtimeline.calc_origin(self.origin)
+
     def to_svg(self) -> svg.G:
         """Build the SVG representing this timeline."""
         group = super().to_svg()
@@ -170,7 +180,11 @@ class TimelineBlock(SvgBlock):
             group.elements.append(self.port_group.to_svg())
         group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
         group.elements.extend(tl.to_svg() for tl in self.subtimelines)
-        group.elements.append(self.top_conduit_duct.to_svg())
+        # The rows below the components lie on top of their subtimelines: draw them
+        # afterwards, so they stay visible in debug mode
+        group.elements.extend(
+            c.subtimeline_duct.to_svg() for c in self.components if c.subtimelines
+        )
         # Set translation
         group.transform = [svg.Translate(*self.offset)]
         return group
