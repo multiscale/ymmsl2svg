@@ -28,7 +28,9 @@ class Settings:
     """Allow resequencing ports to reduce conduit crossings. When set to False, the
     ports will be ordered as they are defined in the yMMSL file."""
 
-    conduit_margin: float = 4  # Must be <= port_margin!
+    lane_margin: float = 8  # Must be >= port_size, and > conduit_width!
+    """Spacing between the lanes that conduits run along (see conduit_ducts). O_I and
+    S ports are spaced the same way, so they can line up with the lanes below them."""
     conduit_width: float = 2
 
 

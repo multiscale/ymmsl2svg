@@ -5,6 +5,7 @@ import svg
 from ymmsl.v0_2 import Component, Conduit, Identifier, Operator, Port
 
 from ymmsl2svg.base import SvgBlock
+from ymmsl2svg.conduit_ducts import TopConduitDuct
 from ymmsl2svg.port_groups import (
     HorizontalPortGroup,
     PortBlock,
@@ -25,7 +26,7 @@ class ComponentBlock(SvgBlock):
     def __init__(
         self,
         component: Component,
-        layer: "TimelineLayer",
+        timeline: "TimelineBlock",
         left_conduit_duct: "ConduitDuct",
         right_conduit_duct: "ConduitDuct",
     ) -> None:
@@ -40,14 +41,14 @@ class ComponentBlock(SvgBlock):
 
         # Data
         self.component = component
-        self.layer = layer
-        """Timeline layer that this component is in."""
+        self.timeline = timeline
+        """Timeline that this component is in."""
 
-        # Conduit connections to the left/right of this component
+        # Columns for conduits to the left/right of this component
         self.left_conduit_duct = left_conduit_duct
         self.right_conduit_duct = right_conduit_duct
-        left_conduit_duct.add_right_connector(self)
-        right_conduit_duct.add_left_connector(self)
+        self.subtimeline_duct = TopConduitDuct(timeline)
+        """Row for conduits below this component, above its subtimelines."""
 
         # Ports
         self.f_init_group = VerticalPortGroup(self, Operator.F_INIT)
@@ -76,16 +77,17 @@ class ComponentBlock(SvgBlock):
         """Attach a subtimeline below this component, with the O_I and S ports of this
         component that send/receive in it."""
         self.subtimelines.append(subtimeline)
-        # Each subtimeline gets its own slot in the same left/right ducts
-        self.left_conduit_duct.add_right_connector(subtimeline.top_conduit_duct)
-        self.right_conduit_duct.add_left_connector(subtimeline.top_conduit_duct)
-
         group = HorizontalPortGroup(self, subtimeline)
         self.o_i_s_groups.append(group)
         # The ports are positioned and drawn in the frame of the subtimeline
         subtimeline.port_group = group
         for port in ports:
             self.ports[port.name] = group.add_port(port)
+
+    @property
+    def layer(self) -> "TimelineLayer":
+        """Timeline layer that this component is in."""
+        return self.timeline.layer
 
     @property
     def port_groups(self) -> list[PortGroup]:
@@ -152,8 +154,15 @@ class ComponentBlock(SvgBlock):
         """Place the subtimelines below this component, side by side from left to right.
 
         Each subtimeline gets a segment of the component's width, as wide as the
-        subtimeline itself. Leftover width goes to the last segment.
+        subtimeline itself. Leftover width goes to the last segment. The row for
+        conduits below this component spans all segments, at the top of the
+        subtimelines.
         """
+        if self.subtimelines:
+            duct = self.subtimeline_duct
+            duct.x, duct.width = self.component_x, self.component_width
+            duct.y = self.layer.height
+            duct.height = self.subtimelines[0].layer.conduitduct_height
         x = self.component_x
         top = self.y + self.component_height
         for i, subtimeline in enumerate(self.subtimelines):
