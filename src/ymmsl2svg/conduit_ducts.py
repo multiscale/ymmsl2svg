@@ -184,7 +184,7 @@ class Duct(SvgBlock):
         preferred lane. The first `fixed` lanes stay where they are.
         """
 
-        def cost(groups: list[list[ConduitNet]]) -> tuple[int, int]:
+        def cost(groups: list[list["ConduitNet"]]) -> tuple[int, int]:
             misaligned = sum(
                 abs(i - self._preferred[net])
                 for i, group in enumerate(groups)
