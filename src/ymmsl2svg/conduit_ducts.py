@@ -362,14 +362,22 @@ class TopConduitDuct(SvgBlock):
             self._routes.append(route)
 
     def calc_layout(self) -> None:
-        """Calculate size and layout of this component"""
+        """Calculate layout of this component"""
+        # N.B. Need to ensure that this fits within the minimum_height calculated below
         offset = settings.conduit_margin / 2
-        height = self._hlanes_for_s.set_pos(offset, settings.conduit_margin)
-        height += self._hlanes_for_oi.set_pos(offset + height, settings.conduit_margin)
-        height += self._hlanes.set_pos(offset + height, settings.conduit_margin)
-        if height:
-            height += settings.conduit_margin
-        self.height = height
+        offset += self._hlanes_for_s.set_pos(offset, settings.conduit_margin)
+        offset += self._hlanes_for_oi.set_pos(offset, settings.conduit_margin)
+        self._hlanes.set_pos(offset, settings.conduit_margin)
+
+    @property
+    def minimum_height(self) -> float:
+        """The minimum height needed to draw all conduits inside this duct."""
+        num_lanes = (
+            len(self._hlanes) + len(self._hlanes_for_s) + len(self._hlanes_for_oi)
+        )
+        if num_lanes:
+            return (num_lanes + 1) * settings.conduit_margin
+        return 0
 
     def to_svg(self) -> svg.G:
         group = super().to_svg()

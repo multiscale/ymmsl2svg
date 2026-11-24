@@ -122,8 +122,9 @@ class VerticalPortGroup(SvgBlock):
         if self.operator is Operator.F_INIT:
             self._ports.sort(key=lambda port: key(port.conduits))
 
-    def min_height(self) -> float:
-        """Minimal height to fit all ports."""
+    @property
+    def minimum_height(self) -> float:
+        """Minimum height to fit all ports."""
         return len(self._ports) * settings.port_margin
 
     def calc_layout(self) -> None:
@@ -204,15 +205,25 @@ class HorizontalPortGroup(SvgBlock):
         """Sort the S ports by key(conduits of the port), from left to right."""
         self.s_ports.sort(key=lambda port: key(port.conduits))
 
+    @property
+    def minimum_height(self) -> float:
+        """Minimum height to fit all ports (zero when there is no subtimeline)."""
+        return 0 if self.subtimeline is None else settings.port_size
+
     def calc_layout(self) -> None:
-        """Position the ports and move the subtimeline right below this group.
+        """Position the ports and move the subtimeline to its timeline layer.
 
         self.x, self.y and self.width must be set by the ComponentBlock first.
         """
+        self.height = self.minimum_height
         if self.subtimeline is None:
-            self.height = 0
             return
-        self.height = settings.port_size
+        # Ports are positioned in the frame of the subtimeline. The subtimeline is
+        # aligned with its timeline layer, so it may be lower than the bottom of this
+        # group: then port_y is negative and the conduits extend up to the ports.
+        subtimeline_y = self.component.layer.height
+        port_y = self.y + self.height - subtimeline_y
+        assert port_y <= 0
         oi_offset, s_offset = self.subtimeline.top_conduit_duct.port_offsets(self)
         for ports, x0 in [
             (self.o_i_ports, oi_offset),
@@ -220,15 +231,15 @@ class HorizontalPortGroup(SvgBlock):
         ]:
             for i, port in enumerate(ports):
                 port.x = x0 + (i + 0.5) * settings.port_margin
-                port.y = 0
-        self.subtimeline.moveto(self.x, self.y + self.height)
+                port.y = port_y
+        self.subtimeline.moveto(self.x, subtimeline_y)
 
     def to_svg(self) -> svg.G:
         """Build the SVG representing these ports."""
         group = super().to_svg()
         assert group.elements is not None
         # From the frame of the subtimeline to the frame of the component's timeline:
-        dx, dy = self.x, self.y + self.height
+        dx, dy = self.x, self.component.layer.height
         for port in self.o_i_ports + self.s_ports:
             group.elements.append(port.to_svg(dx, dy))
         return group
