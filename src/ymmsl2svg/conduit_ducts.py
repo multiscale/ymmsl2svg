@@ -385,11 +385,8 @@ class TopConduitDuct(SvgBlock):
             self._routes.append(route)
 
     def calc_layout(self) -> None:
-        """Calculate layout of this component.
-
-        N.B. The height is set by the TimelineBlock, from the minimum_height of all top
-        conduit ducts in its timeline layer.
-        """
+        """Calculate layout of this component"""
+        # N.B. Need to ensure that this fits within the minimum_height calculated below
         offset = settings.conduit_margin / 2
         offset += self._hlanes_for_s.set_pos(offset, settings.conduit_margin)
         offset += self._hlanes_for_oi.set_pos(offset, settings.conduit_margin)
@@ -399,11 +396,11 @@ class TopConduitDuct(SvgBlock):
     def minimum_height(self) -> float:
         """The minimum height needed to draw all conduits inside this duct."""
         num_lanes = (
-            len(self._hlanes_for_s) + len(self._hlanes_for_oi) + len(self._hlanes)
+            len(self._hlanes) + len(self._hlanes_for_s) + len(self._hlanes_for_oi)
         )
-        if not num_lanes:
-            return 0
-        return (num_lanes + 1) * settings.conduit_margin
+        if num_lanes:
+            return (num_lanes + 1) * settings.conduit_margin
+        return 0
 
     def to_svg(self) -> svg.G:
         group = super().to_svg()
@@ -471,13 +468,15 @@ class ConduitDuct(SvgBlock):
         connector = self.right_connectors[idx]
         if isinstance(connector, ComponentBlock):
             return connector.ports[conduit.receiving_port()]
-        # Always enter via the first (duct-adjacent) subtimeline. If the destination
-        # is in a later sibling, that subtimeline hands the conduit on (see
-        # TopConduitDuct._sibling_point_for).
-        assert connector.tlblock.parent is not None
-        connector = connector.tlblock.parent.subtimelines[0].top_conduit_duct
-        idx = connector.add_virtual_port(conduit, left=True)
-        return VirtualPortPointInDuct(connector, idx, left=False)
+        else:
+            # Always enter via the first (duct-adjacent) subtimeline. If the
+            # destination is in a later sibling, that subtimeline hands the conduit on
+            # (see TopConduitDuct._sibling_point_for).
+            assert connector.tlblock.parent is not None
+            connector = connector.tlblock.parent.subtimelines[0].top_conduit_duct
+            # Create new virtual port, if needed, and add conduit to it:
+            idx = connector.add_virtual_port(conduit, left=True)
+            return VirtualPortPointInDuct(connector, idx, left=False)
 
     def get_conduits(self) -> Iterator[tuple[Point, Conduit]]:
         """Iterator over all conduits that enter this conduit duct from left_connectors.

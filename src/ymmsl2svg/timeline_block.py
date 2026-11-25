@@ -43,6 +43,7 @@ class TimelineBlock(SvgBlock):
         self.conduit_ducts: list[ConduitDuct] = [
             ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
         ]
+        self.components: list[ComponentBlock] = []
 
         self.port_group: HorizontalPortGroup | None = None
         """O_I and S ports of the parent component in this timeline (set by
@@ -52,10 +53,12 @@ class TimelineBlock(SvgBlock):
         # created with the subtimelines that its O_I and S ports send/receive in.
         # The subtimelines must be attached before the next component is created, as
         # the conduit ducts number their connectors in order of registration.
-        self.components: list[ComponentBlock] = []
         for i, component in enumerate(node.components):
             cblock = ComponentBlock(
-                component, layer, self.conduit_ducts[i], self.conduit_ducts[i + 1]
+                component,
+                layer,
+                self.conduit_ducts[i],
+                self.conduit_ducts[i + 1],
             )
             for subnode in node.children.values():
                 if component in subnode.parent_ports:
@@ -157,8 +160,8 @@ class TimelineBlock(SvgBlock):
         self.port_group.calc_layout()
 
     def moveto(self, x: float, y: float) -> None:
-        """Move the complete subtimeline, by translating the containing SVG group (see
-        to_svg)."""
+        """Move the complete subtimeline by setting a translation filter on the
+        containing SVG group."""
         self.offset = (x, y)
 
     def to_svg(self) -> svg.G:

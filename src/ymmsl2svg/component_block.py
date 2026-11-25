@@ -143,8 +143,7 @@ class ComponentBlock(SvgBlock):
             group.x, group.y, group.height = x, self.y, self.component_height
             group.calc_layout()
 
-        # The O_I and S ports go right below the component, the subtimelines below
-        # them.
+        # The O_I and S ports go right below the component, the subtimelines below them
         self._calc_subtimeline_layout()
         self.height = self.component_height + self.o_i_s_height
 
