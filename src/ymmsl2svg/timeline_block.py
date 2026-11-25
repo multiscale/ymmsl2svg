@@ -8,7 +8,7 @@ from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.port_groups import HorizontalPortGroup
 from ymmsl2svg.timeline_layer import TimelineLayer
-from ymmsl2svg.timeline_tree import TimelineTree
+from ymmsl2svg.timeline_node import TimelineNode
 
 
 class TimelineBlock(SvgBlock):
@@ -20,14 +20,14 @@ class TimelineBlock(SvgBlock):
 
     def __init__(
         self,
-        tree: TimelineTree,
+        node: TimelineNode,
         layer: TimelineLayer,
         parent: ComponentBlock | None = None,
     ) -> None:
         super().__init__()
 
-        self.tree = tree
-        if len(tree.parent_components) > 1:
+        self.node = node
+        if len(node.parent_components) > 1:
             raise NotImplementedError(
                 "Visualization for interact coupling is not yet implemented."
             )
@@ -39,29 +39,29 @@ class TimelineBlock(SvgBlock):
         """Position of this timeline in the frame of its parent's timeline (see
         moveto)."""
 
-        self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
+        self.top_conduit_duct = TopConduitDuct(self, node.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
-            ConduitDuct(self.top_conduit_duct) for _ in range(len(tree.components) + 1)
+            ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
         ]
 
         self.port_group: HorizontalPortGroup | None = None
         """O_I and S ports of the parent component in this timeline (set by
         ComponentBlock.add_subtimeline), None for the root timeline."""
 
-        # Order of components is determined by TimelineTree. Each component is
+        # Order of components is determined by TimelineNode. Each component is
         # created with the subtimelines that its O_I and S ports send/receive in.
         # The subtimelines must be attached before the next component is created, as
         # the conduit ducts number their connectors in order of registration.
         self.components: list[ComponentBlock] = []
-        for i, component in enumerate(tree.components):
+        for i, component in enumerate(node.components):
             cblock = ComponentBlock(
                 component, layer, self.conduit_ducts[i], self.conduit_ducts[i + 1]
             )
-            for subtree in tree.children.values():
-                if component in subtree.parent_ports:
+            for subnode in node.children.values():
+                if component in subnode.parent_ports:
                     cblock.add_subtimeline(
-                        TimelineBlock(subtree, layer.next_layer(), cblock),
-                        subtree.parent_ports[component],
+                        TimelineBlock(subnode, layer.next_layer(), cblock),
+                        subnode.parent_ports[component],
                     )
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
