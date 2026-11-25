@@ -76,6 +76,7 @@ class ComponentBlock(SvgBlock):
         """Attach a subtimeline below this component, with the O_I and S ports of this
         component that send/receive in it."""
         self.subtimelines.append(subtimeline)
+        subtimeline.parent = self
         # Each subtimeline gets its own slot in the same left/right ducts
         self.left_conduit_duct.add_right_connector(subtimeline.top_conduit_duct)
         self.right_conduit_duct.add_left_connector(subtimeline.top_conduit_duct)

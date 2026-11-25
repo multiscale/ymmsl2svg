@@ -18,12 +18,7 @@ class TimelineBlock(SvgBlock):
     yMMSL timeline. Subtimelines are instantiated and layed out recursively.
     """
 
-    def __init__(
-        self,
-        node: TimelineNode,
-        layer: TimelineLayer,
-        parent: ComponentBlock | None = None,
-    ) -> None:
+    def __init__(self, node: TimelineNode, layer: TimelineLayer) -> None:
         super().__init__()
 
         self.node = node
@@ -33,8 +28,10 @@ class TimelineBlock(SvgBlock):
             )
         self.layer = layer
         layer.add(self)
-        self.parent = parent
 
+        self.parent: ComponentBlock | None = None
+        """Parent component of this timeline (set by ComponentBlock.add_subtimeline),
+        None for the root timeline."""
         self.offset: tuple[float, float] = (0, 0)
         """Position of this timeline in the frame of its parent's timeline (see
         moveto)."""
@@ -49,6 +46,12 @@ class TimelineBlock(SvgBlock):
         """O_I and S ports of the parent component in this timeline (set by
         ComponentBlock.add_subtimeline), None for the root timeline."""
 
+        # Subtimelines
+        self.subtimelines: list[TimelineBlock] = []
+        for subnode in node.children.values():
+            subtimeline = TimelineBlock(subnode, layer.next_layer())
+            self.subtimelines.append(subtimeline)
+
         # Order of components is determined by TimelineNode. Each component is
         # created with the subtimelines that its O_I and S ports send/receive in.
         # The subtimelines must be attached before the next component is created, as
@@ -60,19 +63,12 @@ class TimelineBlock(SvgBlock):
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
             )
-            for subnode in node.children.values():
-                if component in subnode.parent_ports:
-                    cblock.add_subtimeline(
-                        TimelineBlock(subnode, layer.next_layer(), cblock),
-                        subnode.parent_ports[component],
-                    )
+            for subtimeline in self.subtimelines:
+                ports = subtimeline.node.parent_ports.get(component)
+                if ports:
+                    cblock.add_subtimeline(subtimeline, ports)
             assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
-
-    @property
-    def subtimelines(self) -> list["TimelineBlock"]:
-        """All direct subtimelines, of all components in this timeline."""
-        return [subtl for c in self.components for subtl in c.subtimelines]
 
     def _iter_cd_and_components(self) -> Iterator[ConduitDuct | ComponentBlock]:
         """Iterate over all ConduitDucts and ComponentBlocks (left to right)."""
