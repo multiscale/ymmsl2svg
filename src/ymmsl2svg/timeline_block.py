@@ -6,8 +6,9 @@ from ymmsl.v0_2 import Reference
 from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
+from ymmsl2svg.port_groups import HorizontalPortGroup
 from ymmsl2svg.timeline_layer import TimelineLayer
-from ymmsl2svg.timeline_node import TimelineNode
+from ymmsl2svg.timeline_tree import TimelineTree
 
 
 class TimelineBlock(SvgBlock):
@@ -17,44 +18,53 @@ class TimelineBlock(SvgBlock):
     yMMSL timeline. Subtimelines are instantiated and layed out recursively.
     """
 
-    def __init__(self, node: TimelineNode, layer: TimelineLayer) -> None:
+    def __init__(self, tree: TimelineTree, layer: TimelineLayer) -> None:
         super().__init__()
 
-        self.node = node
-        if len(node.parent_components) > 1:
+        self.tree = tree
+        if len(tree.parent_components) > 1:
             raise NotImplementedError(
                 "Visualization for interact coupling is not yet implemented."
             )
         self.layer = layer
         layer.add(self)
 
-        self.transform: svg.Transform = svg.Translate(0, 0)
+        self.parent: ComponentBlock | None = None
+        """Parent component of this timeline (set by ComponentBlock.add_subtimeline),
+        None for the root timeline."""
 
-        self.top_conduit_duct = TopConduitDuct(self, node.timeline)
+        self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
-            ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
+            ConduitDuct(self.top_conduit_duct) for _ in range(len(tree.components) + 1)
         ]
         self.components: list[ComponentBlock] = []
 
+        self.port_group: HorizontalPortGroup | None = None
+        """O_I and S ports of the parent component in this timeline (set by
+        ComponentBlock.add_subtimeline), None for the root timeline."""
+
         # Subtimelines
         self.subtimelines: list[TimelineBlock] = []
-        subtl_per_component: dict[Reference, list[TimelineBlock]] = {}
-        for subnode in node.children.values():
-            subtimeline = TimelineBlock(subnode, layer.next_layer())
+        for subtree in tree.children.values():
+            subtimeline = TimelineBlock(subtree, layer.next_layer())
             self.subtimelines.append(subtimeline)
-            for component in subnode.parent_components:
-                subtl_per_component.setdefault(component.name, []).append(subtimeline)
 
-        # Order of components is determined by TimelineNode
-        for i, component in enumerate(node.components):
-            subtimelines = subtl_per_component.get(component.name, [])
+        # Order of components is determined by TimelineTree. Each component is
+        # created with the subtimelines that its O_I and S ports send/receive in.
+        # The subtimelines must be attached before the next component is created, as
+        # the conduit ducts number their connectors in order of registration.
+        for i, component in enumerate(tree.components):
             cblock = ComponentBlock(
                 component,
                 layer,
-                subtimelines,
                 self.conduit_ducts[i],
                 self.conduit_ducts[i + 1],
             )
+            for subtimeline in self.subtimelines:
+                ports = subtimeline.tree.parent_ports.get(component)
+                if ports:
+                    cblock.add_subtimeline(subtimeline, ports)
+            assert len(cblock.ports) == len(component.ports)
             self.components.append(cblock)
 
     def _iter_cd_and_components(self) -> Iterator[ConduitDuct | ComponentBlock]:
@@ -121,19 +131,22 @@ class TimelineBlock(SvgBlock):
             (tl.height for tl in self.subtimelines), default=0
         )
 
-    def moveto(self, x: float, y: float) -> None:
-        """Move the complete subtimeline by setting a translation filter on the
-        containing SVG group."""
-        self.transform = svg.Translate(x, y)
-
     def to_svg(self) -> svg.G:
-        """Build the SVG representing this timeline."""
+        """Build the SVG representing this timeline.
+
+        The contents of a timeline are laid out in its own frame, so they are drawn in
+        a group that is translated to (self.x, self.y).
+        """
         group = super().to_svg()
         assert group.elements is not None
-        # Add sub-elements
-        group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
-        group.elements.extend(tl.to_svg() for tl in self.subtimelines)
-        group.elements.append(self.top_conduit_duct.to_svg())
-        # Set translation
-        group.transform = [self.transform]
+        contents = svg.G(transform=[svg.Translate(self.x, self.y)], elements=[])
+        assert contents.elements is not None
+        if self.port_group is not None:
+            contents.elements.append(self.port_group.to_svg())
+        contents.elements.extend(
+            item.to_svg() for item in self._iter_cd_and_components()
+        )
+        contents.elements.extend(tl.to_svg() for tl in self.subtimelines)
+        contents.elements.append(self.top_conduit_duct.to_svg())
+        group.elements.append(contents)
         return group

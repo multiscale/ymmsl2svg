@@ -9,7 +9,7 @@ from ymmsl2svg.base import SvgBlock
 from ymmsl2svg.settings import settings
 from ymmsl2svg.timeline_block import TimelineBlock
 from ymmsl2svg.timeline_layer import TimelineLayer
-from ymmsl2svg.timeline_node import create_timeline_nodes
+from ymmsl2svg.timeline_tree import build_timeline_tree
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,12 @@ class ModelBlock(SvgBlock):
         }
 
         # Determine timelines
-        self.root_timeline_node = create_timeline_nodes(self.model)
+        self.root_timeline_tree = build_timeline_tree(self.model)
 
         # Create graph components
         self.timeline_layer = TimelineLayer()
         self.timeline_block = TimelineBlock(
-            self.root_timeline_node, self.timeline_layer
+            self.root_timeline_tree, self.timeline_layer
         )
 
         # Route conduits
@@ -172,7 +172,7 @@ class ModelBlock(SvgBlock):
         self.timeline_layer.calc_layout()
         self.width = self.timeline_block.width + 4 * settings.port_margin
         self.height = self.timeline_block.height + 4 * settings.port_margin
-        self.timeline_block.moveto(2 * settings.port_margin, 2 * settings.port_margin)
+        self.timeline_block.x = self.timeline_block.y = 2 * settings.port_margin
 
     def to_svg(self) -> svg.G:
         pm = settings.port_margin

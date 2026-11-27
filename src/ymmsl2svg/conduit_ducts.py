@@ -83,8 +83,6 @@ class VirtualPortPointInDuct:
     """Point corresponding to a virtual port of a TopConduitDuct, but from a Duct
     perspective."""
 
-    duct: "ConduitDuct"
-    """ConduitDuct that the virtual port belongs to."""
     tcd: "TopConduitDuct"
     """TopConduitDuct that the virtual port belongs to."""
     index: int
@@ -92,21 +90,20 @@ class VirtualPortPointInDuct:
     left: bool
     """Whether this is a virtual port on the left or on the right of the duct."""
 
+    frame: "TimelineBlock | None" = None
+    """Sibling subtimeline to give the position relative to, for a route drawn
+    inside that sibling (see TopConduitDuct._sibling_point_for). None gives the
+    position relative to the timeline containing the subtimeline."""
+
     @property
     def position(self) -> tuple[float, float]:
         """(x, y) coordinate of this point."""
-        y = self.tcd.virtual_port_y(self.index)
-        transform = self.tcd.tlblock.transform
-        if isinstance(transform, svg.Translate):
-            offset = transform.y
-            assert isinstance(offset, (float, int))
-            y += offset
-
-        # N.B. setings.port_size is subtracted/added to ensure the conduit extends
-        # through the gap reserved for O_F and F_INIT ports:
-        if self.left:
-            return (self.duct.x - settings.port_size, y)
-        return (self.duct.x + self.duct.width + settings.port_size, y)
+        tlblock = self.tcd.tlblock
+        x = tlblock.x + (tlblock.width if self.left else 0)
+        y = tlblock.y + self.tcd.virtual_port_y(self.index)
+        if self.frame is not None:
+            x, y = x - self.frame.x, y - self.frame.y
+        return (x, y)
 
 
 Point = VirtualPortPoint | VirtualPortPointInDuct | PortBlock
@@ -137,9 +134,8 @@ class ConduitRoute:
                 x = lane.pos
                 assert x is not None
                 path.append(svg.H(x))
-        assert self.lanes
         x, y = self.destination.position
-        if lane.horizontal:
+        if self.lanes and self.lanes[-1].horizontal:
             path.append(svg.H(x))
             path.append(svg.V(y))
         else:
@@ -239,6 +235,34 @@ class TopConduitDuct(SvgBlock):
             self._fill_destinations()
         return self._destinations.keys()
 
+    def _sibling_point_for(self, conduit: Conduit) -> Point | None:
+        """Hand `conduit`, which leaves this timeline, to the next sibling subtimeline
+        (of the same parent component) on the right.
+
+        Conduits pass through every sibling to the right on their way out. Returns
+        the Point (relative to this timeline) of the virtual port on that sibling,
+        or None if there is no sibling to our right.
+        """
+        if self.tlblock.parent is None:
+            return None
+        siblings = self.tlblock.parent.subtimelines
+        idx = siblings.index(self.tlblock)
+        if idx == len(siblings) - 1:
+            return None
+        tcd = siblings[idx + 1].top_conduit_duct
+        vidx = tcd.add_virtual_port(conduit, left=True)
+        return VirtualPortPointInDuct(tcd, vidx, left=False, frame=self.tlblock)
+
+    def _exit_point_for(self, conduit: Conduit) -> Point:
+        """Get the Point where `conduit`, which has no destination in this timeline,
+        leaves it: the next sibling subtimeline if there is one, else our parent's
+        timeline (through a right virtual port)."""
+        sibling = self._sibling_point_for(conduit)
+        if sibling is not None:
+            return sibling
+        idx = self.add_virtual_port(conduit, left=False)
+        return VirtualPortPoint(self, idx, left=False)
+
     def _get_input_conduits(self) -> Iterator[tuple[int, Point, Conduit]]:
         """Iterator over all input conduits.
 
@@ -303,12 +327,11 @@ class TopConduitDuct(SvgBlock):
             if itop > 0:
                 lanes.append(self._hlanes_for_oi[conduit.sender])
             destination = self._destinations.get(conduit.receiving_component())
-            if destination is None:  # Route to the right_conduit_duct
+            if destination is None:  # Route to a sibling subtimeline, or the parent
                 lanes.append(self.ducts[0].vlanes_in[conduit.sender])
                 lanes.append(self._hlanes[conduit.sender])
                 lanes.append(self.ducts[-1].vlanes_out[conduit.sender])
-                idx = self.add_virtual_port(conduit, left=False)
-                dest = VirtualPortPoint(self, idx, left=False)
+                dest = self._exit_point_for(conduit)
 
             elif destination[0] == "B":  # Route to a Bottom destination
                 lanes.append(self.ducts[0].vlanes_in[conduit.sender])
@@ -328,14 +351,12 @@ class TopConduitDuct(SvgBlock):
         for iduct, origin, conduit in self._get_duct_conduits():
             destination = self._destinations.get(conduit.receiving_component())
             lanes = []
-            if destination is None:  # Route to the right_conduit_duct
+            if destination is None:  # Route to a sibling subtimeline, or the parent
                 if iduct != len(self.ducts) - 1:
                     lanes.append(self.ducts[iduct].vlanes_out[conduit.sender])
                     lanes.append(self._hlanes[conduit.sender])
                 lanes.append(self.ducts[-1].vlanes_out[conduit.sender])
-                self.right_vports.setdefault(conduit.sender, []).append(conduit)
-                idx = self.add_virtual_port(conduit, left=False)
-                dest = VirtualPortPoint(self, idx, left=False)
+                dest = self._exit_point_for(conduit)
 
             elif destination[0] == "B":  # Route to a Bottom destination
                 idest = destination[1]
@@ -446,9 +467,14 @@ class ConduitDuct(SvgBlock):
         if isinstance(connector, ComponentBlock):
             return connector.ports[conduit.receiving_port()]
         else:
+            # Always enter via the first (duct-adjacent) subtimeline. If the
+            # destination is in a later sibling, that subtimeline hands the conduit on
+            # (see TopConduitDuct._sibling_point_for).
+            assert connector.tlblock.parent is not None
+            connector = connector.tlblock.parent.subtimelines[0].top_conduit_duct
             # Create new virtual port, if needed, and add conduit to it:
             idx = connector.add_virtual_port(conduit, left=True)
-            return VirtualPortPointInDuct(self, connector, idx, left=False)
+            return VirtualPortPointInDuct(connector, idx, left=False)
 
     def get_conduits(self) -> Iterator[tuple[Point, Conduit]]:
         """Iterator over all conduits that enter this conduit duct from left_connectors.
@@ -465,9 +491,7 @@ class ConduitDuct(SvgBlock):
                 left_connector.route_conduits()
                 # Loop over conduits coming in from the child timeline:
                 for idx, conduits in enumerate(left_connector.right_vports.values()):
-                    origin = VirtualPortPointInDuct(
-                        self, left_connector, idx, left=True
-                    )
+                    origin = VirtualPortPointInDuct(left_connector, idx, left=True)
                     for conduit in conduits:
                         yield origin, conduit
 
