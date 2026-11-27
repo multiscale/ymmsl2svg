@@ -32,9 +32,6 @@ class TimelineBlock(SvgBlock):
         self.parent: ComponentBlock | None = None
         """Parent component of this timeline (set by ComponentBlock.add_subtimeline),
         None for the root timeline."""
-        self.offset: tuple[float, float] = (0, 0)
-        """Position of this timeline in the frame of its parent's timeline (see
-        moveto)."""
 
         self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
@@ -149,27 +146,28 @@ class TimelineBlock(SvgBlock):
         # The subtimeline is aligned with its timeline layer, so it may be lower than
         # the bottom of the port group: the conduits then extend up to the ports.
         subtimeline_y = self.parent.layer.height
-        self.moveto(x, subtimeline_y)
+        self.x, self.y = x, subtimeline_y
         self.port_group.x = 0
         self.port_group.y = top - subtimeline_y
         self.port_group.width = width
         self.port_group.calc_layout()
 
-    def moveto(self, x: float, y: float) -> None:
-        """Move the complete subtimeline by setting a translation filter on the
-        containing SVG group."""
-        self.offset = (x, y)
-
     def to_svg(self) -> svg.G:
-        """Build the SVG representing this timeline."""
+        """Build the SVG representing this timeline.
+
+        The contents of a timeline are laid out in its own frame, so they are drawn in
+        a group that is translated to (self.x, self.y).
+        """
         group = super().to_svg()
         assert group.elements is not None
-        # Add sub-elements
+        contents = svg.G(transform=[svg.Translate(self.x, self.y)], elements=[])
+        assert contents.elements is not None
         if self.port_group is not None:
-            group.elements.append(self.port_group.to_svg())
-        group.elements.extend(item.to_svg() for item in self._iter_cd_and_components())
-        group.elements.extend(tl.to_svg() for tl in self.subtimelines)
-        group.elements.append(self.top_conduit_duct.to_svg())
-        # Set translation
-        group.transform = [svg.Translate(*self.offset)]
+            contents.elements.append(self.port_group.to_svg())
+        contents.elements.extend(
+            item.to_svg() for item in self._iter_cd_and_components()
+        )
+        contents.elements.extend(tl.to_svg() for tl in self.subtimelines)
+        contents.elements.append(self.top_conduit_duct.to_svg())
+        group.elements.append(contents)
         return group

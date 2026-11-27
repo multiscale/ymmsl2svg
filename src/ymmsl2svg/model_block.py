@@ -172,7 +172,7 @@ class ModelBlock(SvgBlock):
         self.timeline_layer.calc_layout()
         self.width = self.timeline_block.width + 4 * settings.port_margin
         self.height = self.timeline_block.height + 4 * settings.port_margin
-        self.timeline_block.moveto(2 * settings.port_margin, 2 * settings.port_margin)
+        self.timeline_block.x = self.timeline_block.y = 2 * settings.port_margin
 
     def to_svg(self) -> svg.G:
         pm = settings.port_margin

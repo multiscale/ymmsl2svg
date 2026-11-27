@@ -99,12 +99,10 @@ class VirtualPortPointInDuct:
     def position(self) -> tuple[float, float]:
         """(x, y) coordinate of this point."""
         tlblock = self.tcd.tlblock
-        x, y = tlblock.offset
-        x += tlblock.width if self.left else 0
-        y += self.tcd.virtual_port_y(self.index)
+        x = tlblock.x + (tlblock.width if self.left else 0)
+        y = tlblock.y + self.tcd.virtual_port_y(self.index)
         if self.frame is not None:
-            frame_x, frame_y = self.frame.offset
-            x, y = x - frame_x, y - frame_y
+            x, y = x - self.frame.x, y - self.frame.y
         return (x, y)
 
 
