@@ -131,27 +131,6 @@ class TimelineBlock(SvgBlock):
             (tl.height for tl in self.subtimelines), default=0
         )
 
-    def place(self, x: float, width: float, top: float) -> None:
-        """Place this subtimeline below its parent component, and lay out the parent's
-        O_I and S ports above it.
-
-        Args:
-            x: x-position of the segment of the parent component reserved for this
-                subtimeline, in the frame of the parent's timeline.
-            width: Width of that segment.
-            top: y-position of the bottom of the parent component rectangle, in the
-                frame of the parent's timeline.
-        """
-        assert self.parent is not None and self.port_group is not None
-        # The subtimeline is aligned with its timeline layer, so it may be lower than
-        # the bottom of the port group: the conduits then extend up to the ports.
-        subtimeline_y = self.parent.layer.height
-        self.x, self.y = x, subtimeline_y
-        self.port_group.x = 0
-        self.port_group.y = top - subtimeline_y
-        self.port_group.width = width
-        self.port_group.calc_layout()
-
     def to_svg(self) -> svg.G:
         """Build the SVG representing this timeline.
 

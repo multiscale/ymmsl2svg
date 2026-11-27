@@ -152,14 +152,21 @@ class ComponentBlock(SvgBlock):
         """Lay out the subtimelines below this component, side by side, left to right.
 
         Each subtimeline gets a segment of the component's width, as wide as the
-        subtimeline itself. The segments are centered below the component.
+        subtimeline itself. The segments are centered below the component. The O_I and
+        S ports for each subtimeline go right below the component, above its segment.
         """
         subtimelines_width = sum(subtl.width for subtl in self.subtimelines)
         x = self.component_x + (self.component_width - subtimelines_width) / 2
         top = self.y + self.component_height
-        for subtimeline in self.subtimelines:
-            subtimeline.place(x, subtimeline.width, top)
-            x += subtimeline.width
+        for subtl, group in zip(self.subtimelines, self.o_i_s_groups, strict=True):
+            # The subtimeline is aligned with its timeline layer, so it may be lower
+            # than the bottom of the port group: the conduits then extend up to the
+            # ports.
+            subtl.x, subtl.y = x, self.layer.height
+            # The port group is positioned in the frame of the subtimeline
+            group.x, group.y, group.width = 0, top - subtl.y, subtl.width
+            group.calc_layout()
+            x += subtl.width
 
     @property
     def o_i_s_height(self) -> float:

@@ -204,12 +204,12 @@ class HorizontalPortGroup(SvgBlock):
     def calc_layout(self) -> None:
         """Position the ports.
 
-        self.x, self.y and self.width must be set by the TimelineBlock first.
+        self.x, self.y and self.width must be set by the ComponentBlock first.
         """
         self.height = self.minimum_height
         # The subtimeline may be lower than the bottom of this group (see
-        # TimelineBlock.place): then port_y is negative and the conduits extend up to
-        # the ports.
+        # ComponentBlock._calc_subtimeline_layout): then port_y is negative and the
+        # conduits extend up to the ports.
         port_y = self.y + self.height
         assert port_y <= 0
         oi_offset, s_offset = self.subtimeline.top_conduit_duct.port_offsets(self)
