@@ -13,14 +13,14 @@ from ymmsl.v0_2 import (
 from ymmsl.v0_2.timeline_resolver import TimelineChecker
 
 
-def create_timeline_nodes(model: Model) -> "TimelineNode":
-    """Create all timeline nodes for a model and return the root node."""
+def build_timeline_tree(model: Model) -> "TimelineTree":
+    """Build the tree of all timelines of a model and return its root."""
     if model.matching_timelines:
         raise NotImplementedError(
             "Visualization of matching timelines is not yet implemented."
         )
     checker = check_timelines(model)
-    root = TimelineNode(Timeline(":"), None)
+    root = TimelineTree(Timeline(":"), None)
 
     for component in model.components.values():
         component.timeline = checker.component_timeline(component.name)
@@ -31,14 +31,21 @@ def create_timeline_nodes(model: Model) -> "TimelineNode":
     return root
 
 
-class TimelineNode:
-    def __init__(self, timeline: Timeline, parent: "TimelineNode | None") -> None:
+class TimelineTree:
+    """One timeline of a model, with its components and its subtimelines (as
+    subtrees).
+
+    Determines what is in each timeline and the order of its components, the
+    TimelineBlock built from it determines how it is drawn.
+    """
+
+    def __init__(self, timeline: Timeline, parent: "TimelineTree | None") -> None:
         self.timeline = timeline
         """Timeline for this node."""
         self.parent = parent
         """Parent of this node, will be None for the root timeline."""
 
-        self.children: dict[Reference, TimelineNode] = {}
+        self.children: dict[Reference, TimelineTree] = {}
         """Child timeline nodes for direct subtimelines."""
         self.components: list[Component] = []
         """Components that are part of this timeline."""
@@ -51,12 +58,12 @@ class TimelineNode:
         this timeline."""
         return list(self.parent_ports)
 
-    def __getitem__(self, timeline: Timeline) -> "TimelineNode":
+    def __getitem__(self, timeline: Timeline) -> "TimelineTree":
         """Get a sub-timeline of this one, creating a new one if required."""
         node = self
         for part in timeline:
             if part not in node.children:
-                node.children[part] = TimelineNode(node.timeline + part, node)
+                node.children[part] = TimelineTree(node.timeline + part, node)
             node = node.children[part]
         return node
 
@@ -109,7 +116,7 @@ class TimelineNode:
         between components B and bridge. All three components are part of a single
         group.
         """
-        shared_subtl_per_component: dict[Component, list[TimelineNode]] = {}
+        shared_subtl_per_component: dict[Component, list[TimelineTree]] = {}
         for subtl in self.children.values():
             if len(subtl.parent_components) > 2:
                 raise RuntimeError(

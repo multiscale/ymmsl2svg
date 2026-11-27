@@ -8,7 +8,7 @@ from ymmsl2svg.component_block import ComponentBlock
 from ymmsl2svg.conduit_ducts import ConduitDuct, TopConduitDuct
 from ymmsl2svg.port_groups import HorizontalPortGroup
 from ymmsl2svg.timeline_layer import TimelineLayer
-from ymmsl2svg.timeline_node import TimelineNode
+from ymmsl2svg.timeline_tree import TimelineTree
 
 
 class TimelineBlock(SvgBlock):
@@ -18,11 +18,11 @@ class TimelineBlock(SvgBlock):
     yMMSL timeline. Subtimelines are instantiated and layed out recursively.
     """
 
-    def __init__(self, node: TimelineNode, layer: TimelineLayer) -> None:
+    def __init__(self, tree: TimelineTree, layer: TimelineLayer) -> None:
         super().__init__()
 
-        self.node = node
-        if len(node.parent_components) > 1:
+        self.tree = tree
+        if len(tree.parent_components) > 1:
             raise NotImplementedError(
                 "Visualization for interact coupling is not yet implemented."
             )
@@ -36,9 +36,9 @@ class TimelineBlock(SvgBlock):
         """Position of this timeline in the frame of its parent's timeline (see
         moveto)."""
 
-        self.top_conduit_duct = TopConduitDuct(self, node.timeline)
+        self.top_conduit_duct = TopConduitDuct(self, tree.timeline)
         self.conduit_ducts: list[ConduitDuct] = [
-            ConduitDuct(self.top_conduit_duct) for _ in range(len(node.components) + 1)
+            ConduitDuct(self.top_conduit_duct) for _ in range(len(tree.components) + 1)
         ]
         self.components: list[ComponentBlock] = []
 
@@ -48,15 +48,15 @@ class TimelineBlock(SvgBlock):
 
         # Subtimelines
         self.subtimelines: list[TimelineBlock] = []
-        for subnode in node.children.values():
-            subtimeline = TimelineBlock(subnode, layer.next_layer())
+        for subtree in tree.children.values():
+            subtimeline = TimelineBlock(subtree, layer.next_layer())
             self.subtimelines.append(subtimeline)
 
-        # Order of components is determined by TimelineNode. Each component is
+        # Order of components is determined by TimelineTree. Each component is
         # created with the subtimelines that its O_I and S ports send/receive in.
         # The subtimelines must be attached before the next component is created, as
         # the conduit ducts number their connectors in order of registration.
-        for i, component in enumerate(node.components):
+        for i, component in enumerate(tree.components):
             cblock = ComponentBlock(
                 component,
                 layer,
@@ -64,7 +64,7 @@ class TimelineBlock(SvgBlock):
                 self.conduit_ducts[i + 1],
             )
             for subtimeline in self.subtimelines:
-                ports = subtimeline.node.parent_ports.get(component)
+                ports = subtimeline.tree.parent_ports.get(component)
                 if ports:
                     cblock.add_subtimeline(subtimeline, ports)
             assert len(cblock.ports) == len(component.ports)
